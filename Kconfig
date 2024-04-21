@@ -1,0 +1,22 @@
+menu "Logger GPS Log Module Configuration"
+    config GPS_LOG_LEVEL
+        int "GPS Log Module Log Level"
+        default 3
+        help
+        GPS Log Module Log Level
+    config GPS_LOG_ENABLE
+        bool "Enable GPS Log Module"
+        default y
+        help
+        Enable GPS Log Module
+    config GPS_LOG_STACK_SIZE
+        int "GPS Log Module Stack Size in bytes"
+        default 8096
+        help
+        GPS Log Module Stack Size in bytes
+    config GPS_LOG_ENABLE_GPY
+        bool "Enable GPY Log Message Format"
+        default y
+        help
+        Enable GPY Log Message Format
+endmenu
