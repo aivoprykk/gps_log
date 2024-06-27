@@ -19,6 +19,8 @@ enum {
     GPS_LOG_EVENT_GPS_FRAME_LOST,
 };
 
+extern const char * gps_log_event_strings[];
+
 #ifdef __cplusplus
 }
 #endif

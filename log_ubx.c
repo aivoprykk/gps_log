@@ -6,7 +6,7 @@
 
 void log_ubx(gps_context_t *context, ubx_msg_t * ubxMessage) {
     logger_config_t *config = context->log_config->config;
-    uint8_t i[2] = {0xB5, 0x62};
+    const uint8_t i[2] = {0xB5, 0x62};
     // write nav_pvt
     WRITEUBX(&(i[0]), sizeof(uint8_t));
     WRITEUBX(&(i[1]), sizeof(uint8_t));
