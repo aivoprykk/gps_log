@@ -1,9 +1,4 @@
 menu "Logger GPS Log Module Configuration"
-    config GPS_LOG_LEVEL
-        int "GPS Log Module Log Level"
-        default 3
-        help
-        GPS Log Module Log Level
     config GPS_LOG_ENABLE
         bool "Enable GPS Log Module"
         default y
@@ -19,4 +14,30 @@ menu "Logger GPS Log Module Configuration"
         default y
         help
         Enable GPY Log Message Format
+    choice
+        bool "Default log verbosity"
+        default GPS_LOG_LEVEL_WARN
+        help
+            Specify how important log should be added.
+        config GPS_LOG_LEVEL_TRACE
+            bool "A lot of logs to give detailed information"
+        config GPS_LOG_LEVEL_INFO
+            bool "Log important events"
+        config GPS_LOG_LEVEL_WARN
+            bool "Log if something unwanted happened but didn't cause a problem"
+        config GPS_LOG_LEVEL_ERROR
+            bool "Only critical issues, when the system may fail"
+        config GPS_LOG_LEVEL_USER
+            bool "Only logs added by the user"
+        config GPS_LOG_LEVEL_NONE
+            bool "Do not log anything"
+    endchoice
+    config GPS_LOG_LEVEL
+        int
+        default 0 if GPS_LOG_LEVEL_TRACE
+        default 1 if GPS_LOG_LEVEL_INFO
+        default 2 if GPS_LOG_LEVEL_WARN
+        default 3 if GPS_LOG_LEVEL_ERROR
+        default 4 if GPS_LOG_LEVEL_USER
+        default 5 if GPS_LOG_LEVEL_NONE
 endmenu

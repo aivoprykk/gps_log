@@ -87,7 +87,7 @@ typedef struct gps_p_context_s {
 gps_p_context_t lctx = GPS_P_CONTEXT_INIT;
 
 #define CONFIG_GPS_LOG_ENABLE_DEBUG 0
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
     printf("gps_p_context:{\n");
     printf("dynamic_state: %d\n", me->dynamic_state);
@@ -182,7 +182,7 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
     ctx->Gps_fields_OK = 0;
 }
 
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_data_printf(const struct gps_data_s *me) {
     printf("gps_data:{\n");
     printf("total_distance: %.03f\n", me->total_distance);
@@ -237,7 +237,7 @@ void push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude
         }
         xSemaphoreGive(lctx.xMutex);
     }
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
     gps_data_printf(me);
     //gps_p_context_printf(&lctx);
 #endif
@@ -270,7 +270,7 @@ struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
     me->index_SAT_info = 0;
     return me;
 }
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
     printf("GPS_SAT_info:{\n");
     printf("mean_cno: %hu\n", me->mean_cno);
@@ -333,7 +333,7 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
             me->sat_info.Mean_numSV = me->nr_sats;
         }
         me->index_SAT_info++;
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
         //gps_sat_info_printf(me);
 #endif
     }
@@ -427,7 +427,7 @@ struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint1
     return me;
 }
 
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 // esp_err_t gps_speed_serialize_json(struct gps_speed_by_dist_s *me, cJSON * root) {
 //     cJSON *gps_speed = cJSON_CreateObject();
 //     if (gps_speed == NULL) {
@@ -629,7 +629,7 @@ double Update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->m_max_speed = 0;
     }
     me->old_run = actual_run;
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
     //gps_speed_printf(me);
 #endif
     return me->m_max_speed;
@@ -642,7 +642,7 @@ struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16
     me->time_window = tijdvenster;
     return me;
 }
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
     printf("GPS_time:{\n");
     printf("time_window: %hu\n", me->time_window);
@@ -816,7 +816,7 @@ float Update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
         //return me->s_max_speed;
     }
     //}
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
     //gps_time_printf(me);
 #endif
     return me->s_max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
@@ -828,7 +828,7 @@ struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_r
     return me;
 }
     
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
     printf("alfa_speed:{\n");
     printf("alfa_circle_square: %.03f\n", me->alfa_circle_square);
@@ -929,7 +929,7 @@ float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, str
         me->display_max_speed = me->alfa_speed_max;  // update on the fly, that's not correct here !!!
     else
         me->display_max_speed = me->avg_speed[9];
-#if (CONFIG_GPS_LOG_ENABLE_DEBUG==1)
+#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
     //alfa_speed_printf(me);
 #endif
     return me->alfa_speed_max;

@@ -37,6 +37,10 @@ const char * gps_log_event_strings[] = {
     "GPS_LOG_EVENT_GPS_FRAME_LOST",
 };
 
+static const char * speed_strings[] = {
+    "m/s", "km/h","knots"
+};
+
 //static gps_log_file_config_t log_config = GPS_LOG_DEFAULT_CONFIG();
 
 int log_get_fd(const struct gps_context_s * context, uint8_t file) {
@@ -44,7 +48,6 @@ int log_get_fd(const struct gps_context_s * context, uint8_t file) {
 }
 
 size_t log_write(const struct gps_context_s * context, uint8_t file, const void *msg, size_t len) {
-    // ESP_LOGI(TAG, "[%s] (%" PRIu8 ")", __FUNCTION__, file);
     int fd = GET_FD(file);
     if (fd < 0)
         return fd;
@@ -56,7 +59,6 @@ size_t log_write(const struct gps_context_s * context, uint8_t file, const void 
 }
 
 int log_close(const struct gps_context_s * context, uint8_t file) {
-    // ESP_LOGI(TAG, "[%s] (%" PRIu8 ")", __FUNCTION__, file);
     int fd = GET_FD(file);
     if (fd < 0)
         return fd;
@@ -69,7 +71,6 @@ int log_close(const struct gps_context_s * context, uint8_t file) {
 }
 
 int log_fsync(const struct gps_context_s * context, uint8_t file) {
-    // ESP_LOGI(TAG, "[%s] (%" PRIu8 ")", __FUNCTION__, file);
     int fd = GET_FD(file);
     if (fd < 0)
         return fd;
@@ -136,6 +137,7 @@ esp_err_t save_log_file_bits(gps_context_t *context, uint8_t *log_file_bits) {
 }
 
 void open_files(gps_context_t *context) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (context->files_opened)
         return;
@@ -208,6 +210,7 @@ void open_files(gps_context_t *context) {
         if (GETBIT(config->log_file_bits, i)) {
             strcpy(config->filenames[i], config->filename_NO_EXT);
             strcat(config->filenames[i], fn);
+            DLOG(TAG, "[%s] opening %s", __func__, config->filenames[i]);
             GET_FD(i) = s_open(config->filenames[i], CONFIG_SD_MOUNT_POINT, FILE_APPEND);
             if(GET_FD(i)<=0) {
                 open_failed++;
@@ -222,6 +225,7 @@ void open_files(gps_context_t *context) {
 }
 
 void close_files(gps_context_t *context) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         return;
@@ -295,7 +299,7 @@ void log_to_file(gps_context_t *context) {
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
-            log_ubx(context, &ubx->ubx_msg);
+            log_ubx(context, &ubx->ubx_msg, config->log_ubx_nav_sat);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_GPY)) {
             log_GPY(context);
@@ -320,6 +324,7 @@ void printFile(const char *filename) {
 }
 
 void model_info(const gps_context_t *context, int model) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
@@ -340,18 +345,18 @@ void model_info(const gps_context_t *context, int model) {
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, context->ublox_config->ubx_msg.count_nav_pvt);
         WRITETXT(sb.start, sb.cur - sb.start);
-        ESP_LOGI(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
 
 void session_info(const gps_context_t *context, struct gps_data_s *G) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
         return;
     }
-    LOGR
     logger_config_t *config = context->log_config->config;
     const ubx_config_t *ubx = context->ublox_config;
     const ubx_msg_t * ubxMessage = &ubx->ubx_msg;
@@ -381,8 +386,8 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_puts(&sb, "Sample rate : ");
     strbf_putn(&sb, config->sample_rate);
     strbf_puts(&sb, " Hz\n");
-    strbf_puts(&sb, "Speed calibration: ");
-    strbf_putn(&sb, config->cal_speed);
+    strbf_puts(&sb, "Speed units: ");
+    strbf_puts(&sb, speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit]);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Timezone : ");
     strbf_putn(&sb, config->timezone);
@@ -398,16 +403,17 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_puts(&sb, "Ublox GNSS-enabled : ");
     strbf_putl(&sb, ubxMessage->monGNSS.enabled_Gnss);
     strbf_puts(&sb, "\n");
+    strbf_puts(&sb, "GNSS = GPS + ");
     if (ubxMessage->monGNSS.enabled_Gnss == 3)
-        strbf_puts(&sb, "GNSS = GPS + GLONAS");
+        strbf_puts(&sb, "GLONAS");
     if (ubxMessage->monGNSS.enabled_Gnss == 9)
-        strbf_puts(&sb, "GNSS = GPS + GALILEO");
+        strbf_puts(&sb, "GALILEO");
     if (ubxMessage->monGNSS.enabled_Gnss == 11)
-        strbf_puts(&sb, "GNSS = GPS + GLONAS + GALILEO");
+        strbf_puts(&sb, "GLONAS + GALILEO");
     if (ubxMessage->monGNSS.enabled_Gnss == 13)
-        strbf_puts(&sb, "GNSS = GPS + GLONAS + BEIDOU");
+        strbf_puts(&sb, "GLONAS + BEIDOU");
     if (ubxMessage->monGNSS.enabled_Gnss == 15)
-        strbf_puts(&sb, "GNSS = GPS + GLONAS + GALILEO + BEIDOU");  // only M9
+        strbf_puts(&sb, "GLONAS + GALILEO + BEIDOU");  // only M9
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Ublox SW-version : ");
     strbf_puts(&sb, ubxMessage->mon_ver.swVersion);
@@ -423,29 +429,27 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     if (ublox_hw > UBX_TYPE_M8)
         strbf_sprintf(&sb, "%02x\n", ubxMessage->ubxId.ubx_id_6);
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-    ESP_LOGI(TAG, "[%s] %s", __FUNCTION__, sb.start);
+    DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
 }
 
 void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s *M, float calibration_speed) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
         return;
     }
-    LOGR
     logger_config_t *config = context->log_config->config;
     strbf_t sb;
     char tekst[20] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    uint16_t Calibration = config->cal_speed * 1000;
+    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
     for (int i = 9; i > 4; i--) {
         f3_to_char(M->avg_speed[i] * calibration_speed, tekst);
         strbf_puts(&sb, tekst);
-        if (Calibration == 3600)
-            strbf_puts(&sb, " km/h ");
-        if ((Calibration >= 1943) && (Calibration <= 1945))
-            strbf_puts(&sb, " knots ");
+        strbf_puts(&sb, units);
+        strbf_putc(&sb, ' ');
         time_to_char_hms(M->time_hour[i], M->time_min[i], M->time_sec[i], tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Distance: ");
@@ -461,30 +465,27 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
         strbf_putl(&sb, M->m_set_distance);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-        ESP_LOGI(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
 
 void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s *S, float calibration_speed) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
         return;
     }
-    LOGR
     logger_config_t *config = context->log_config->config;
     strbf_t sb;
     char tekst[48] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    uint16_t Calibration = config->cal_speed * 1000;
+    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
     xdtostrf(S->avg_5runs * calibration_speed, 1, 3, tekst);
     strbf_puts(&sb, tekst);
-    if (Calibration == 3600)
-        strbf_puts(&sb, " km/h");
-    else if ((Calibration >= 1943) && (Calibration <= 1945))
-        strbf_puts(&sb, " knots");
+    strbf_puts(&sb, units);
     strbf_puts(&sb, " avg 5_best_runs\n");
     // errorfile.open();
     // write(sdcard_config.errorfile, message, sb.cur - sb.start);
@@ -494,10 +495,8 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
     for (int i = 9; i > 4; i--) {
         f3_to_char(S->avg_speed[i] * calibration_speed, tekst);
         strbf_puts(&sb, tekst);
-        if (Calibration == 3600)
-            strbf_puts(&sb, " km/h ");
-        else if ((Calibration >= 1943) && (Calibration <= 1945))
-            strbf_puts(&sb, " knots ");
+        strbf_puts(&sb, units);
+        strbf_putc(&sb, ' ');
         time_to_char_hms(S->time_hour[i], S->time_min[i], S->time_sec[i], tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Run:");
@@ -509,32 +508,30 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
         } else
             strbf_puts(&sb, "\n");
         WRITETXT(message, sb.cur - sb.start);
-        ESP_LOGI(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
 
 void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s *A, struct gps_speed_by_dist_s *M, float calibration_speed) {
+    ILOG(TAG, "[%s]", __func__);
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
         return;
     }
-    LOGR
     logger_config_t *config = context->log_config->config;
     strbf_t sb;
     char tekst[20] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    uint16_t Calibration = config->cal_speed * 1000;
+    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
     for (int i = 9; i > 4; i--) {
         strbf_reset(&sb);
         f3_to_char(A->avg_speed[i] * calibration_speed, tekst);
         strbf_puts(&sb, tekst);
-        if (Calibration == 3600)
-            strbf_puts(&sb, " km/h ");
-        else if ((Calibration >= 1943) & (Calibration <= 1945))
-            strbf_puts(&sb, " knots ");
+        strbf_puts(&sb, units);
+        strbf_putc(&sb, ' ');
         f2_to_char(sqrt((float)A->real_distance[i]), tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " m ");
@@ -550,7 +547,7 @@ void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s 
         strbf_putl(&sb, M->m_set_distance);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-        ESP_LOGI(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
