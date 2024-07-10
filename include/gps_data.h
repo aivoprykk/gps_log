@@ -36,6 +36,9 @@ struct gps_data_s {
     .run_start_time = 0 \
 }
 
+/**
+ * @brief GPS satellite information structure
+*/
 struct SAT_info {
       uint16_t Mean_cno[NAV_SAT_BUFFER]; // Mean cno value from all sats used in nav
       uint8_t Max_cno[NAV_SAT_BUFFER];   // Max cno value from all sats used in nav      
@@ -58,6 +61,9 @@ struct SAT_info {
     .Mean_numSV = 0 \
 }
 
+/**
+ * @brief GPS satellite information structure
+ */
 struct GPS_SAT_info {
     struct SAT_info sat_info;
     uint32_t index_SAT_info;
@@ -78,6 +84,9 @@ struct GPS_SAT_info {
 
 struct nav_sat_s;
 
+/**
+ * @brief GPS average speed over a certain distance configuration structure 
+*/
 // Calculating the average speed over a certain distance, sample rate has no influence !!****************/
 struct gps_speed_by_dist_s {
     float m_speed;           // speed over the desired distance
@@ -124,6 +133,9 @@ struct gps_speed_by_dist_s {
     .old_run = 0 \
 }
 
+/**
+ * @brief GPS average speed over a time window configuration structure
+*/
 // calculation of average speed over a time window (2s, 10s, 1800s...)
 // ****************************************************************
 struct gps_speed_by_time_s {
@@ -175,7 +187,10 @@ struct gps_speed_by_time_s {
     .reset_display_last_run = 0 \
 }
 
-/*;h Berekenen van de alfa speed, instantie van gps_speed_by_dist_s 250 /500 kan gebruikt worden + diameter cirkel (normaal 50 m)***********/
+/**
+ * @brief GPS Calculation of the alpha speed configuration structure 
+*/
+// Calculation of the alpha speed, instance of gps_speed_by_dist_s 250 /500 can be used + circle diameter (normally 50 m)
 struct gps_speed_alfa_s {
     double straight_dist_square;
     double alfa_speed;
@@ -213,6 +228,9 @@ struct gps_speed_alfa_s {
     .old_alfa_count = 0 \
 }
 
+/**
+ * @brief GPS context structure
+*/
 typedef struct gps_context_s {
     struct gps_data_s Ublox;          // create an object storing GPS_data !
     struct GPS_SAT_info Ublox_Sat;    // create an object storing GPS_SAT info !
@@ -295,43 +313,153 @@ typedef struct gps_context_s {
     .SW_version = 0, \
 }
 
+/** 
+ * @brief Initialize the GPS data structure
+ * 
+ * @param gps_data_s* Pointer to the GPS data structure
+ * @return struct gps_data_s* Pointer to the GPS data structure
+*/
 struct gps_data_s * init_gps_data(struct gps_data_s*);
 
+/** 
+ * @brief Initialize the GPS speed by time structure
+ * 
+ * @param gps_speed_by_time_s* Pointer to the GPS speed by time structure
+ * @param uint16_t tijdvenster Time window in seconds
+ * @return struct gps_speed_by_time_s* Pointer to the GPS speed by time structure
+*/
 struct gps_speed_by_time_s * init_gps_time(struct gps_speed_by_time_s*, uint16_t tijdvenster); // description of the constructor
-float Update_speed(struct gps_context_s * context, struct gps_speed_by_time_s*);//update function
-void Reset_Time_stats(struct gps_speed_by_time_s*); //reset all stats to 0
 
+/** 
+ * @brief Update the speed by time structure
+ * 
+ * @param struct gps_context_s * Pointer to the GPS context structure
+ * @param struct gps_speed_by_time_s* Pointer to the GPS speed by time structure
+ * @return float Updated speed
+*/
+float update_speed(struct gps_context_s * context, struct gps_speed_by_time_s*);//update function
+
+/** 
+ * @brief Reset the time statistics
+ * 
+ * @param struct gps_speed_by_time_s* Pointer to the GPS speed by time structure
+*/
+void reset_time_stats(struct gps_speed_by_time_s*); //reset all stats to 0
+
+/** 
+ * @brief Initialize the GPS satellite information structure
+ * 
+ * @param struct GPS_SAT_info* Pointer to the GPS satellite information structure
+ * @return struct GPS_SAT_info* Pointer to the GPS satellite information structure
+*/
 struct GPS_SAT_info* init_gps_sat_info(struct GPS_SAT_info*);
+
+/** 
+ * @brief Push the GPS satellite information
+ * 
+ * @param struct GPS_SAT_info* Pointer to the GPS satellite information structure
+ * @param struct nav_sat_s * Pointer to the NAV SAT structure
+*/
 void push_gps_sat_info(struct GPS_SAT_info*, struct nav_sat_s * nav_sat);
 
-//void sort_run(double a[], uint8_t hour[], uint8_t minute[],uint8_t seconde[],int runs[],int size);
+/** 
+ * @brief sort the run data
+*/
 void sort_run(double a[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint16_t mean_cno[], uint8_t max_cno[], uint8_t min_cno[], uint8_t nrSats[], uint32_t runs[], uint8_t size);
+
+/** 
+ * @brief sort the run data for alfa
+*/
 void sort_run_alfa(double a[], int32_t dis[], uint32_t message[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint32_t runs[], uint32_t samples[], uint8_t size);
 
+/** 
+ * @brief Initialize the GPS speed by distance structure
+ * 
+ * @param struct gps_speed_by_dist_s* Pointer to the GPS speed by distance structure
+ * @param uint16_t afstand Length in m where avg speed is calculated
+ * @return struct gps_speed_by_dist_s* Pointer to the GPS speed by distance structure
+*/
 struct gps_speed_by_dist_s * init_gps_speed(struct gps_speed_by_dist_s *, uint16_t afstand); // description of the constructor, length in m where avg speed is calculated
-    
-void push_gps_data(struct gps_context_s * context, struct gps_data_s*, float latitude, float longitude, int32_t gSpeed); // hier wordt de gps data in de buffer geplaatst
-uint32_t New_run_detection(struct gps_context_s * context, float actual_heading, float S2_speed);
-double Update_distance(struct gps_context_s *context, struct gps_speed_by_dist_s *);
 
+/** 
+ * @brief Push the GPS data
+*/
+void push_gps_data(struct gps_context_s * context, struct gps_data_s*, float latitude, float longitude, int32_t gSpeed); // hier wordt de gps data in de buffer geplaatst
+
+
+/** 
+ * @brief New run detection
+*/
+uint32_t new_run_detection(struct gps_context_s * context, float actual_heading, float S2_speed);
+
+/** 
+ * @brief Update the distance
+*/
+double update_distance(struct gps_context_s *context, struct gps_speed_by_dist_s *);
+
+/** 
+ * @brief Initialize the alpha speed structure
+ * 
+ * @param struct gps_speed_alfa_s* Pointer to the alpha speed structure
+ * @param int alfa_radius Radius of the circle in m
+ * @return struct gps_speed_alfa_s* Pointer to the alpha speed structure
+ */
 struct gps_speed_alfa_s * init_alfa_speed(struct gps_speed_alfa_s*,int alfa_radius);//constructor
+
+/** 
+ * @brief Update the alpha speed
+ * 
+ * @param struct gps_context_s * Pointer to the GPS context structure
+ * @param struct gps_speed_alfa_s* Pointer to the alpha speed structure
+ * @param struct gps_speed_by_dist_s * Pointer to the GPS speed by distance structure
+ * @return float Updated alpha speed
+ */
 float update_alfa_speed(struct gps_context_s * context, struct gps_speed_alfa_s*, struct gps_speed_by_dist_s * M);   //update function every GPS-sample
+
+/** 
+ * @brief Reset the alpha statistics
+ * 
+ * @param struct gps_speed_alfa_s* Pointer to the alpha speed structure
+ */
 void reset_alfa_stats(struct gps_speed_alfa_s*); //reset all stats to 0
-    
+
+/** 
+ * @brief Calculate the distance between two points
+ * 
+ * @param float long_act Longitude of the actual position
+ * @param float lat_act Latitude of the actual position
+ * @param float long_1 Longitude of the first point
+ * @param float lat_1 Latitude of the first point
+ * @param float long_2 Longitude of the second point
+ * @param float lat_2 Latitude of the second point
+ * @return float Distance between the two points
+ */
 float dis_point_line(float long_act,float lat_act,float long_1,float lat_1,float long_2,float lat_2);
+
+/** 
+ * @brief Calculate the alpha indicator
+ * 
+ * @param struct gps_context_s * Pointer to the GPS context structure
+ * @param float actual_heading Actual heading
+ * @return float Alpha indicator
+ */
 float alfa_indicator(struct gps_context_s * context, float actual_heading);
 
+/** 
+ * @brief Initialize the GPS context fields
+ * 
+ * @param struct gps_context_s * Pointer to the GPS context structure
+ */
 void init_gps_context_fields(struct gps_context_s * ctx);
 
 /*
-@returns last speed in mm/s
-if average_records is 0, the last speed is returned
+@returns last speed in mm/s if average_records is 0, the last speed is returned
  */
 int32_t gps_last_speed_smoothed(uint8_t average_records);
 
-/*
-@returns last speed in mm/s over average_records
-if average_records is 0, the last sec speed is returned
+/**
+ *@brief returns the last speed in mm/s over average_records
+@returns last speed in mm/s over average_records if average_records is 0, the last sec speed is returned
  */
 int32_t gps_last_sec_speed_smoothed(uint8_t average_records);
 

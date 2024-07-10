@@ -35,35 +35,40 @@ void printFile(const char *filename);
 #include "esp_timer.h"
 #include "esp_log.h"
 
+#ifndef LOG_INFO
+#define LOG_INFO(a, b, ...) ESP_LOGI(a, b, __VA_ARGS__)
+#endif
+#ifndef MEAS_START
+#define MEAS_START() uint64_t _start = (esp_timer_get_time())
+#endif
+#ifndef MEAS_END
+#define MEAS_END(a, b, ...) \
+    ESP_LOGI(a, b, __VA_ARGS__, (esp_timer_get_time() - _start))
+#endif
 #endif
 
 #if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE) // "A lot of logs to give detailed information"
 
-#define DLOG(a, b, ...) ESP_LOGI(a, b, __VA_ARGS__)
-#define DMEAS_START() uint64_t _start = (esp_timer_get_time()), _end = 0
-#define DMEAS_END(a, b, ...) \
-    _end = (esp_timer_get_time());  \
-    ESP_LOGI(a, b, __VA_ARGS__, _end - _start)
-#define ILOG DLOG
-#define IMEAS_START DMEAS_START
-#define IMEAS_END DMEAS_END
-#define WLOG DLOG
-#define WMEAS_START DMEAS_START
-#define WMEAS_END DMEAS_END
+#define DLOG LOG_INFO
+#define DMEAS_START MEAS_START
+#define DMEAS_END MEAS_END
+#define ILOG LOG_INFO
+#define IMEAS_START MEAS_START
+#define IMEAS_END MEAS_END
+#define WLOG LOG_INFO
+#define WMEAS_START MEAS_START
+#define WMEAS_END MEAS_END
 
 #elif (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_INFO) // "Log important events"
 
 #define DLOG(a, b, ...) ((void)0)
 #define DMEAS_START() ((void)0)
 #define DMEAS_END(a, b, ...) ((void)0)
-#define ILOG(a, b, ...) ESP_LOGI(a, b, __VA_ARGS__)
-#define IMEAS_START() uint64_t _start = (esp_timer_get_time()), _end = 0
-#define IMEAS_END(a, b, ...) \
-    _end = (esp_timer_get_time());  \
-    ESP_LOGI(a, b, __VA_ARGS__, _end - _start)
-#define WLOG ILOG
-#define WMEAS_START IMEAS_START
-#define WMEAS_END IMEAS_END
+#define ILOG LOG_INFO
+#define IMEAS_START MEAS_START
+#define WLOG LOG_INFO
+#define WMEAS_START MEAS_START
+#define WMEAS_END MEAS_END
 
 #elif (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_WARN) // "Log if something unwanted happened but didn't cause a problem"
 
@@ -73,11 +78,9 @@ void printFile(const char *filename);
 #define ILOG(a, b, ...) ((void)0)
 #define IMEAS_START() ((void)0)
 #define IMEAS_END(a, b, ...) ((void)0)
-#define WLOG(a, b, ...) ESP_LOGI(a, b, __VA_ARGS__)
-#define WMEAS_START() uint64_t _start = (esp_timer_get_time()), _end = 0
-#define WMEAS_END(a, b, ...) \
-    _end = (esp_timer_get_time());  \
-    ESP_LOGI(a, b, __VA_ARGS__, _end - _start)
+#define WLOG LOG_INFO
+#define WMEAS_START MEAS_START
+#define WMEAS_END MEAS_END
 
 #else // "Do not log anything"
 

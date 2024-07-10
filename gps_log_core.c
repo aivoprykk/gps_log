@@ -11,6 +11,7 @@
 #include "gps_data.h"
 #include "gps_log_file.h"
 #include "logger_config.h"
+#include "log_private.h"
 #include "logger_common.h"
 #include "ubx.h"
 #include "str.h"
@@ -145,6 +146,7 @@ int32_t gps_last_sec_speed_smoothed(uint8_t window_size) {
 }
 
 void init_gps_context_fields(gps_context_t *ctx) {
+    ILOG(TAG, "[%s]", __func__);
     assert(ctx);
     init_gps_data(&ctx->Ublox);  // create an object storing GPS_data !
     init_gps_sat_info(&ctx->Ublox_Sat);  // create an object storing GPS_SAT info !
@@ -172,6 +174,7 @@ void init_gps_context_fields(gps_context_t *ctx) {
 }
 
 void deinit_gps_context_fields(gps_context_t *ctx) {
+    ILOG(TAG, "[%s]", __func__);
     assert(ctx);
     if (ctx->ublox_config != NULL)
         ubx_config_delete(ctx->ublox_config);
@@ -246,6 +249,7 @@ void push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude
 
 // constructor for GPS_data
 struct gps_data_s *init_gps_data(struct gps_data_s *me) {
+    ILOG(TAG, "[%s]", __func__);
     memset(me, 0, sizeof(struct gps_data_s));
     lctx.index_GPS = 0;
     return me;
@@ -266,6 +270,7 @@ struct gps_data_s *init_gps_data(struct gps_data_s *me) {
 
 // constructor for SAT_info
 struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
+    ILOG(TAG, "[%s]", __func__);
     memset(me, 0, sizeof(struct GPS_SAT_info));
     me->index_SAT_info = 0;
     return me;
@@ -422,6 +427,7 @@ void sort_run_alfa(double a[], int32_t dis[], uint32_t message[], uint8_t hour[]
 /*Instantie om gemiddelde snelheid over een bepaalde afstand te bepalen, bij een
  * nieuwe run opslaan hoogste snelheid van de vorige run*****************/
 struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint16_t afstand) {
+    ILOG(TAG, "[%s]", __func__);
     memset(me, 0, sizeof(struct gps_speed_by_dist_s));
     me->m_set_distance = afstand;
     return me;
@@ -569,7 +575,7 @@ esp_err_t gps_speed_printf(const struct gps_speed_by_dist_s *me) {
     return ESP_OK;
 }
 #endif
-double Update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
+double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
     assert(context);
     // logger_config_t *config = context->config;
     // assert(config);
@@ -638,6 +644,7 @@ double Update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
 /*Instantie om gemiddelde snelheid over een bepaald tijdvenster te
  * bepalen*******************************************/
 struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16_t tijdvenster) {
+    ILOG(TAG, "[%s]", __func__);
     memset(me, 0, sizeof(struct gps_speed_by_time_s));
     me->time_window = tijdvenster;
     return me;
@@ -703,7 +710,7 @@ esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
     return ESP_OK;
 }
 #endif
-void Reset_Time_stats(struct gps_speed_by_time_s *me) {
+void reset_time_stats(struct gps_speed_by_time_s *me) {
     for (int i = 0; i < 10; i++) {
         me->avg_speed[i] = 0;
         me->display_speed[i] = 0;
@@ -711,7 +718,7 @@ void Reset_Time_stats(struct gps_speed_by_time_s *me) {
     me->avg_5runs = 0;
 }
 
-float Update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
+float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
     assert(context);
     ubx_config_t *ubx = context->ublox_config;
     uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
@@ -823,6 +830,7 @@ float Update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
 }
 
 struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_radius) {
+    ILOG(TAG, "[%s]", __func__);
     memset(me, 0, sizeof(struct gps_speed_alfa_s));
     me->alfa_circle_square = alfa_radius * alfa_radius;  // to avoid sqrt calculation !!
     return me;
@@ -949,7 +957,7 @@ void reset_alfa_stats(struct gps_speed_alfa_s *me) {
 #define STRAIGHT_COURSE_MAX_DEV 10  // max angle deviation for straight ahead recognition (degrees)
 #define JIBE_COURSE_DEVIATION_MIN 50  // min angle deviation for jibe detection (degrees)
 #define TIME_DELAY_NEW_RUN 10U // uint time_delay_new_run
-uint32_t New_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
+uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
     assert(context);
     ubx_config_t *ubx = context->ublox_config;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
