@@ -88,7 +88,7 @@ typedef struct gps_p_context_s {
 gps_p_context_t lctx = GPS_P_CONTEXT_INIT;
 
 #define CONFIG_GPS_LOG_ENABLE_DEBUG 0
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
     printf("gps_p_context:{\n");
     printf("dynamic_state: %d\n", me->dynamic_state);
@@ -185,7 +185,7 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
     ctx->Gps_fields_OK = 0;
 }
 
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_data_printf(const struct gps_data_s *me) {
     printf("gps_data:{\n");
     printf("total_distance: %.03f\n", me->total_distance);
@@ -240,7 +240,7 @@ void push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude
         }
         xSemaphoreGive(lctx.xMutex);
     }
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
     gps_data_printf(me);
     //gps_p_context_printf(&lctx);
 #endif
@@ -275,7 +275,7 @@ struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
     me->index_SAT_info = 0;
     return me;
 }
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
     printf("GPS_SAT_info:{\n");
     printf("mean_cno: %hu\n", me->mean_cno);
@@ -338,7 +338,7 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
             me->sat_info.Mean_numSV = me->nr_sats;
         }
         me->index_SAT_info++;
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
         //gps_sat_info_printf(me);
 #endif
     }
@@ -433,7 +433,7 @@ struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint1
     return me;
 }
 
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 // esp_err_t gps_speed_serialize_json(struct gps_speed_by_dist_s *me, cJSON * root) {
 //     cJSON *gps_speed = cJSON_CreateObject();
 //     if (gps_speed == NULL) {
@@ -625,17 +625,21 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->nr_samples[0] = me->m_sample;
         me->message_nr[0] = ubx->ubx_msg.count_nav_pvt;
     }
-    if (me->m_max_speed > me->avg_speed[9])
+    if (me->m_max_speed > me->avg_speed[9]){
         me->display_max_speed = me->m_max_speed;  // update on the fly, dat klopt hier niet !!!
+        me->record = 1;
+        context->record = 1;
+    }
     else
         me->display_max_speed = me->avg_speed[9];
     if ((actual_run != me->old_run) && (me->this_run[0] == me->old_run)) {  // opslaan hoogste snelheid van run + sorteren
         sort_run_alfa(me->avg_speed, me->m_Distance, me->message_nr, me->time_hour, me->time_min, me->time_sec, me->this_run, me->nr_samples, 10);
         me->avg_speed[0] = 0;
         me->m_max_speed = 0;
+        me->record = 0;
     }
     me->old_run = actual_run;
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
     //gps_speed_printf(me);
 #endif
     return me->m_max_speed;
@@ -649,7 +653,7 @@ struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16
     me->time_window = tijdvenster;
     return me;
 }
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
     printf("GPS_time:{\n");
     printf("time_window: %hu\n", me->time_window);
@@ -757,8 +761,11 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
                 }
                 sort_display(me->display_speed, 10);
             }
-            if (me->s_max_speed > me->avg_speed[9])
+            if (me->s_max_speed > me->avg_speed[9]) {
                 me->display_max_speed = me->s_max_speed;  // update on the fly, dat klopt hier niet !!!
+                me->record = 1;
+                context->record = 1;
+            }
             else
                 me->display_max_speed = me->avg_speed[9];
         }
@@ -773,6 +780,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             me->avg_speed[0] = 0;
             me->s_max_speed = 0;
             me->avg_5runs = 0;
+            me->record = 0;
             for (i = 5; i < 10; i++) {
                 me->avg_5runs = me->avg_5runs + me->avg_speed[i];
             }
@@ -823,7 +831,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
         //return me->s_max_speed;
     }
     //}
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
     //gps_time_printf(me);
 #endif
     return me->s_max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
@@ -836,7 +844,7 @@ struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_r
     return me;
 }
     
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
     printf("alfa_speed:{\n");
     printf("alfa_circle_square: %.03f\n", me->alfa_circle_square);
@@ -931,13 +939,17 @@ float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, str
         // logERR(message);
         me->alfa_speed = 0;
         me->alfa_speed_max = 0;
+        me->record = 0;
     }
     me->old_alfa_count = context->run_count;
-    if (me->alfa_speed_max > me->avg_speed[9])
+    if (me->alfa_speed_max > me->avg_speed[9]) {
         me->display_max_speed = me->alfa_speed_max;  // update on the fly, that's not correct here !!!
+        me->record = 1;
+        context->record = 1;
+    }
     else
         me->display_max_speed = me->avg_speed[9];
-#if (CONFIG_GPS_LOG_LEVEL == CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
     //alfa_speed_printf(me);
 #endif
     return me->alfa_speed_max;

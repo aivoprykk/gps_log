@@ -110,6 +110,7 @@ struct gps_speed_by_dist_s {
     uint32_t m_sample;
     //private
     uint32_t old_run;
+    uint8_t record;
 };
 
 #define GPS_SPEED_DEFAULT_CONFIG() { \
@@ -130,7 +131,8 @@ struct gps_speed_by_dist_s {
     .m_set_distance = 0, \
     .m_Set_Distance = 0, \
     .m_sample = 0, \
-    .old_run = 0 \
+    .old_run = 0, \
+    .record = 0 \
 }
 
 /**
@@ -161,6 +163,7 @@ struct gps_speed_by_time_s {
     //private
     uint32_t old_run;
     uint32_t reset_display_last_run;
+    uint8_t record;
 }; 
 
 #define GPS_TIME_DEFAULT_CONFIG { \
@@ -184,7 +187,8 @@ struct gps_speed_by_time_s {
     .Min_cno = {0}, \
     .Mean_numSat = {0}, \
     .old_run = 0, \
-    .reset_display_last_run = 0 \
+    .reset_display_last_run = 0, \
+    .record = 0 \
 }
 
 /**
@@ -208,6 +212,7 @@ struct gps_speed_alfa_s {
     //private
     uint32_t alfa_count;
     uint32_t old_alfa_count;
+    uint8_t record;
 };
 
 #define ALFA_SPEED_DEFAULT_CONFIG() { \
@@ -225,7 +230,8 @@ struct gps_speed_alfa_s {
     .message_nr = {0}, \
     .alfa_distance = {0}, \
     .alfa_count = 0, \
-    .old_alfa_count = 0 \
+    .old_alfa_count = 0, \
+    .record = 0 \
 }
 
 /**
@@ -275,6 +281,7 @@ typedef struct gps_context_s {
     struct ubx_config_s *ublox_config;
     struct gps_log_file_config_s * log_config;
     const char * SW_version;
+    uint8_t record;
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG { \
@@ -311,6 +318,7 @@ typedef struct gps_context_s {
     .start_logging_millis = 0, \
     .log_config = NULL, \
     .SW_version = 0, \
+    .record = 0 \
 }
 
 /** 
