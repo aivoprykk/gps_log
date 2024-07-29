@@ -200,7 +200,7 @@ esp_err_t gps_data_printf(const struct gps_data_s *me) {
 // doppler speed, lat and long. A global buffer was chosen because this data
 // must also be available in other classes (GPS_speed() and GPS_time). The last
 // buffer position is also stored in a global variable, lctx.index_GPS
-void push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude, float longitude, int32_t gSpeed) {  // gspeed in mm/s !!!
+esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude, float longitude, int32_t gSpeed) {  // gspeed in mm/s !!!
     assert(context);
     // logger_config_t *config = context->config;
     // assert(config);
@@ -217,34 +217,37 @@ void push_gps_data(gps_context_t *context, struct gps_data_s *me, float latitude
         lctx.dynamic_state = 0;  // test with 4.5 m/s, this is 16.2 km/h
         ubx_set_nav_mode(ubx, UBX_MODE_SEA);
     }
-    if(xSemaphoreTake(lctx.xMutex, portMAX_DELAY)) {
-        lctx.index_GPS++;  // always increment index after updating all instances
-        lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE] = gSpeed;  // always store gSpeed in array range !
-        lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA] = latitude;
-        lctx.buf_long[lctx.index_GPS % BUFFER_ALFA] = longitude;
-        // only add distance if reception is good, be careful sometimes sAcc<2
-        // !!!****************************************************
-        if ((ubxMessage->navPvt.numSV >= FILTER_MIN_SATS) && ((ubxMessage->navPvt.sAcc / 1000.0f) < FILTER_MAX_sACC)) {
-            lctx.delta_dist = gSpeed / sample_rate;  // convert speed to distance !!!
-            me->total_distance += lctx.delta_dist;
-            me->run_distance += lctx.delta_dist;
-            me->alfa_distance += lctx.delta_dist;
-        }
-        // Store groundSpeed per second
-        // !!******************************************************
-        lctx.sec_gSpeed += gSpeed;  // store at seconds interval for 30 min / 60 min average speed
-        if (lctx.index_GPS % sample_rate == 0) {  // modulus of index%sample rate
-            lctx.index_sec++;   // also lctx.index_sec may only be updated after instance update
-            lctx.buf_secSpeed[lctx.index_sec % BUFFER_SIZE] = lctx.sec_gSpeed / sample_rate; // otherwise overflow because lctx.buf_secSpeed[] is only up to 65535 (uint16) !!!!
-            lctx.sec_gSpeed = 0; // reset sec_gSpeed for calc next second average speed
-        }
-        xSemaphoreGive(lctx.xMutex);
+
+    if(xSemaphoreTake(lctx.xMutex, 0) != pdTRUE)
+        return ESP_FAIL;
+    
+    lctx.index_GPS++;  // always increment index after updating all instances
+    lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE] = gSpeed;  // always store gSpeed in array range !
+    lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA] = latitude;
+    lctx.buf_long[lctx.index_GPS % BUFFER_ALFA] = longitude;
+    // only add distance if reception is good, be careful sometimes sAcc<2
+    // !!!****************************************************
+    if ((ubxMessage->navPvt.numSV >= FILTER_MIN_SATS) && ((ubxMessage->navPvt.sAcc / 1000.0f) < FILTER_MAX_sACC)) {
+        lctx.delta_dist = gSpeed / sample_rate;  // convert speed to distance !!!
+        me->total_distance += lctx.delta_dist;
+        me->run_distance += lctx.delta_dist;
+        me->alfa_distance += lctx.delta_dist;
     }
+    // Store groundSpeed per second
+    // !!******************************************************
+    lctx.sec_gSpeed += gSpeed;  // store at seconds interval for 30 min / 60 min average speed
+    if (lctx.index_GPS % sample_rate == 0) {  // modulus of index%sample rate
+        lctx.index_sec++;   // also lctx.index_sec may only be updated after instance update
+        lctx.buf_secSpeed[lctx.index_sec % BUFFER_SIZE] = lctx.sec_gSpeed / sample_rate; // otherwise overflow because lctx.buf_secSpeed[] is only up to 65535 (uint16) !!!!
+        lctx.sec_gSpeed = 0; // reset sec_gSpeed for calc next second average speed
+    }
+    xSemaphoreGive(lctx.xMutex);
 #if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
     gps_data_printf(me);
     //gps_p_context_printf(&lctx);
 #endif
     //printf("Speed upadated gspeed: %"PRIu32" avgSpeed:%"PRIu32"\n", gSpeed, lctx.avg_gSpeed);
+    return ESP_OK;
 }
 
 // constructor for GPS_data

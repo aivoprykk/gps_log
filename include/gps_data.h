@@ -392,7 +392,7 @@ struct gps_speed_by_dist_s * init_gps_speed(struct gps_speed_by_dist_s *, uint16
 /** 
  * @brief Push the GPS data
 */
-void push_gps_data(struct gps_context_s * context, struct gps_data_s*, float latitude, float longitude, int32_t gSpeed); // hier wordt de gps data in de buffer geplaatst
+int push_gps_data(struct gps_context_s * context, struct gps_data_s*, float latitude, float longitude, int32_t gSpeed); // hier wordt de gps data in de buffer geplaatst
 
 
 /** 
