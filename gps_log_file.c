@@ -249,8 +249,8 @@ void flush_files(const gps_context_t *context) {
     if (!context->files_opened) {
         return;
     }
-    logger_config_t *config = context->log_config->config;
-    if (config->sample_rate <= 10) {  //@18Hz still lost points !!!
+    ubx_rtc_config_t *config = context->ublox_config->rtc_conf;
+    if (config->output_rate <= 10) {  //@18Hz still lost points !!!
         if (load_balance == 0) {
             log_fsync(context, SD_UBX);
         }
@@ -295,7 +295,8 @@ void log_to_file(gps_context_t *context) {
             if (GET_FD(SD_TXT) > 0) {
                 WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
             }
-            ESP_LOGE(TAG, "Lost ubx frame %lu", context->interval_gps_msg);
+            ++context->lost_frames;
+            ESP_LOGE(TAG, "Lost ubx frame frame: %lu interval: %lu, time: %s", ubx->ubx_msg.count_nav_pvt, context->interval_gps_msg, buffer);
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
@@ -370,7 +371,7 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     sprintf(macAddr, MACSTR, MAC2STR(context->mac_address));
     strbf_puts(&sb, macAddr);
     strbf_puts(&sb, "\n");
-    strbf_puts(&sb, "GPS Logger: v");
+    strbf_puts(&sb, "GPS Logger: ");
     strbf_puts(&sb, context->SW_version);
     strbf_puts(&sb, "\n");
     strbf_puts(&sb, "First fix : ");
@@ -384,7 +385,7 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, (int)G->total_distance / 1000);
     strbf_puts(&sb, " m\n");
     strbf_puts(&sb, "Sample rate : ");
-    strbf_putn(&sb, config->sample_rate);
+    strbf_putn(&sb, context->ublox_config->rtc_conf->output_rate);
     strbf_puts(&sb, " Hz\n");
     strbf_puts(&sb, "Speed units: ");
     strbf_puts(&sb, speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit]);
@@ -413,7 +414,7 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     if (ubxMessage->monGNSS.enabled_Gnss == 13)
         strbf_puts(&sb, "GLONAS + BEIDOU");
     if (ubxMessage->monGNSS.enabled_Gnss == 15)
-        strbf_puts(&sb, "GLONAS + GALILEO + BEIDOU");  // only M9
+        strbf_puts(&sb, "GLONAS + GALILEO + BEIDOU");
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Ublox SW-version : ");
     strbf_puts(&sb, ubxMessage->mon_ver.swVersion);
@@ -453,7 +454,7 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
         time_to_char_hms(M->time_hour[i], M->time_min[i], M->time_sec[i], tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Distance: ");
-        f2_to_char(M->m_Distance[i] / 1000.0f / config->sample_rate, tekst);
+        f2_to_char(M->m_Distance[i] / 1000.0f / context->ublox_config->rtc_conf->output_rate, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, M->message_nr[i]);

@@ -94,7 +94,7 @@ struct gps_speed_by_dist_s {
     double m_max_speed;      // maximum speed of the last run
     float display_max_speed; // to update on the fly on display
     double avg_speed[10];
-    double display_speed[10];
+    double display_speed[10]; // speed for update on the fly on display
     int32_t m_Distance[10];
     uint8_t time_hour[10];
     uint8_t time_min[10];
@@ -147,7 +147,7 @@ struct gps_speed_by_time_s {
     float display_max_speed;  // to update on the fly on display
     float display_last_run;
     double avg_speed[10];
-    double display_speed[10]; 
+    double display_speed[10]; // speed for update on the fly on display
     double avg_5runs;         // speed average for 5 runs over the desired time window
     uint8_t time_hour[10];
     uint8_t time_min[10];
@@ -282,6 +282,7 @@ typedef struct gps_context_s {
     struct gps_log_file_config_s * log_config;
     const char * SW_version;
     uint8_t record;
+    uint16_t lost_frames;
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG { \
@@ -318,7 +319,8 @@ typedef struct gps_context_s {
     .start_logging_millis = 0, \
     .log_config = NULL, \
     .SW_version = 0, \
-    .record = 0 \
+    .record = 0, \
+    .lost_frames = 0 \
 }
 
 /** 
@@ -401,7 +403,12 @@ int push_gps_data(struct gps_context_s * context, struct gps_data_s*, float lati
 uint32_t new_run_detection(struct gps_context_s * context, float actual_heading, float S2_speed);
 
 /** 
- * @brief Update the distance
+ * @brief Reset the distance statistics
+*/
+void reset_distance_stats(struct gps_speed_by_dist_s *me);
+
+/** 
+ * @brief Update the distance statistics
 */
 double update_distance(struct gps_context_s *context, struct gps_speed_by_dist_s *);
 

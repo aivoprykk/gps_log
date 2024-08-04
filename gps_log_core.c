@@ -578,12 +578,20 @@ esp_err_t gps_speed_printf(const struct gps_speed_by_dist_s *me) {
     return ESP_OK;
 }
 #endif
+
+void reset_distance_stats(struct gps_speed_by_dist_s *me) {
+    for (int i = 0; i < 10; i++) {
+        me->avg_speed[i] = 0;
+        me->display_speed[i] = 0;
+    }
+}
+
 double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
     assert(context);
     // logger_config_t *config = context->config;
     // assert(config);
     ubx_config_t *ubx = context->ublox_config;
-    uint8_t sample_rate = ubx->rtc_conf->output_rate;
+    uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
     uint32_t actual_run = context->run_count;
     me->m_Set_Distance = me->m_set_distance * 1000 * sample_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
     me->m_distance = me->m_distance + lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // the resolution of the distance is 0.1 mm
@@ -627,6 +635,13 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->m_Distance[0] = me->m_distance;
         me->nr_samples[0] = me->m_sample;
         me->message_nr[0] = ubx->ubx_msg.count_nav_pvt;
+        if (me->m_max_speed > me->avg_speed[5]) {
+            me->display_speed[5] = me->m_max_speed;  // current run is faster than run[5] !!
+            for (i = 9; i > 5; i--) {  // copy other runs
+                me->display_speed[i] = me->avg_speed[i];
+            }
+            sort_display(me->display_speed, 10);
+        }
     }
     if (me->m_max_speed > me->avg_speed[9]){
         me->display_max_speed = me->m_max_speed;  // update on the fly, dat klopt hier niet !!!
@@ -637,6 +652,9 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->display_max_speed = me->avg_speed[9];
     if ((actual_run != me->old_run) && (me->this_run[0] == me->old_run)) {  // opslaan hoogste snelheid van run + sorteren
         sort_run_alfa(me->avg_speed, me->m_Distance, me->message_nr, me->time_hour, me->time_min, me->time_sec, me->this_run, me->nr_samples, 10);
+        for (i = 0; i < 10; i++) {
+            me->display_speed[i] = me->avg_speed[i];  // to make a direct update on the screen possible
+        }
         me->avg_speed[0] = 0;
         me->m_max_speed = 0;
         me->record = 0;
@@ -750,7 +768,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             me->Max_cno[0] = context->Ublox_Sat.sat_info.Mean_max_cno;
             me->Min_cno[0] = context->Ublox_Sat.sat_info.Mean_min_cno;
             me->Mean_numSat[0] = context->Ublox_Sat.sat_info.Mean_numSV;
-            // Om de avg te actualiseren tijdens de run, gemiddelde berekenen van niet gesorteerde array  !
+            // To update the average during the run, calculate the average of the unsorted array!
             if (me->s_max_speed > me->avg_speed[5]) {
                 me->avg_5runs = 0;
                 for (i = 6; i < 10; i++) {
@@ -758,14 +776,14 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
                 }
                 me->avg_5runs = me->avg_5runs + me->avg_speed[0];
                 me->avg_5runs = me->avg_5runs / 5;
-                me->display_speed[5] = me->s_max_speed;  // actuele run is sneller dan run[5] !!
-                for (int i = 9; i > 5; i--) {  // andere runs kopieren
+                me->display_speed[5] = me->s_max_speed;  // current run is faster than run[5] !!
+                for (i = 9; i > 5; i--) {  // copy other runs
                     me->display_speed[i] = me->avg_speed[i];
                 }
                 sort_display(me->display_speed, 10);
             }
             if (me->s_max_speed > me->avg_speed[9]) {
-                me->display_max_speed = me->s_max_speed;  // update on the fly, dat klopt hier niet !!!
+                me->display_max_speed = me->s_max_speed;  // update on the fly, that doesn't make sense here !!!
                 me->record = 1;
                 context->record = 1;
             }
