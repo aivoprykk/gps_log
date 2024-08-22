@@ -83,7 +83,7 @@ int log_fsync(const struct gps_context_s * context, uint8_t file) {
 
 void log_err(const gps_context_t *context, const char *message) {
     assert(context);
-    if (context->log_config->config->log_txt) {
+    if (context->log_config->config->gps.log_txt) {
         WRITETXT(message, strlen(message));
     }
 }
@@ -123,15 +123,15 @@ esp_err_t save_log_file_bits(gps_context_t *context, uint8_t *log_file_bits) {
     logger_config_t *config = context->log_config->config;
     if (!config)
         return ESP_ERR_INVALID_ARG;
-    if(config->log_ubx)
+    if(config->gps.log_ubx)
         SETBIT(*log_file_bits, SD_UBX);
-    if(config->log_gpy)
+    if(config->gps.log_gpy)
         SETBIT(*log_file_bits, SD_GPY);
-    if(config->log_sbp)
+    if(config->gps.log_sbp)
         SETBIT(*log_file_bits, SD_SBP);
-    if(config->log_gpx)
+    if(config->gps.log_gpx)
         SETBIT(*log_file_bits, SD_GPX);
-    if(config->log_txt) 
+    if(config->gps.log_txt) 
         SETBIT(*log_file_bits, SD_TXT);
     return ESP_OK;
 }
@@ -300,7 +300,7 @@ void log_to_file(gps_context_t *context) {
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
-            log_ubx(context, &ubx->ubx_msg, config->log_ubx_nav_sat);
+            log_ubx(context, &ubx->ubx_msg, config->gps.log_ubx_nav_sat);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_GPY)) {
             log_GPY(context);
@@ -388,15 +388,15 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, context->ublox_config->rtc_conf->output_rate);
     strbf_puts(&sb, " Hz\n");
     strbf_puts(&sb, "Speed units: ");
-    strbf_puts(&sb, speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit]);
+    strbf_puts(&sb, speed_strings[config->gps.speed_unit > 2 ? 2 : config->gps.speed_unit]);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Timezone : ");
     strbf_putn(&sb, config->timezone);
     strbf_puts(&sb, " h\n");
     strbf_puts(&sb, "Dynamic model: ");
-    if (config->dynamic_model == 1)
+    if (config->gps.dynamic_model == 1)
         strbf_puts(&sb, "Sea");
-    else if (config->dynamic_model == 2)
+    else if (config->gps.dynamic_model == 2)
         strbf_puts(&sb, "Automotive");
     else
         strbf_puts(&sb, "Portable");
@@ -445,7 +445,7 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
     char tekst[20] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
+    const char * units = speed_strings[config->gps.speed_unit > 2 ? 2 : config->gps.speed_unit];
     for (int i = 9; i > 4; i--) {
         f3_to_char(M->avg_speed[i] * calibration_speed, tekst);
         strbf_puts(&sb, tekst);
@@ -483,7 +483,7 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
     char tekst[48] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
+    const char * units = speed_strings[config->gps.speed_unit > 2 ? 2 : config->gps.speed_unit];
     xdtostrf(S->avg_5runs * calibration_speed, 1, 3, tekst);
     strbf_puts(&sb, tekst);
     strbf_puts(&sb, units);
@@ -504,7 +504,7 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
         strbf_putl(&sb, S->this_run[i]);
         strbf_puts(&sb, " S");
         strbf_putl(&sb, S->time_window);
-        if (config->log_ubx_nav_sat) {
+        if (config->gps.log_ubx_nav_sat) {
             strbf_sprintf(&sb, " CNO Max: %u Avg: %u Min: %u nr Sat: %u\n", S->Max_cno[i], S->Mean_cno[i], S->Min_cno[i], S->Mean_numSat[i]);
         } else
             strbf_puts(&sb, "\n");
@@ -526,7 +526,7 @@ void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s 
     char tekst[20] = {0};
     char message[255] = {0};
     strbf_inits(&sb, &(message[0]), 255);
-    const char * units = speed_strings[config->speed_unit > 2 ? 2 : config->speed_unit];
+    const char * units = speed_strings[config->gps.speed_unit > 2 ? 2 : config->gps.speed_unit];
     for (int i = 9; i > 4; i--) {
         strbf_reset(&sb);
         f3_to_char(A->avg_speed[i] * calibration_speed, tekst);
