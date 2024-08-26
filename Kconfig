@@ -6,12 +6,12 @@ menu "Logger GPS Log Module Configuration"
         Enable GPS Log Module
     config GPS_LOG_STACK_SIZE
         int "GPS Log Module Stack Size in bytes"
-        default 8096
+        default 3072
         help
         GPS Log Module Stack Size in bytes
     config GPS_LOG_ENABLE_GPY
         bool "Enable GPY Log Message Format"
-        default y
+        default n
         help
         Enable GPY Log Message Format
     choice
