@@ -176,12 +176,18 @@ void init_gps_context_fields(gps_context_t *ctx) {
 void deinit_gps_context_fields(gps_context_t *ctx) {
     ILOG(TAG, "[%s]", __func__);
     assert(ctx);
-    if (ctx->ublox_config != NULL)
+    if (ctx->ublox_config != NULL){
         ubx_config_delete(ctx->ublox_config);
-    if (ctx->log_config != NULL)
+        ctx->ublox_config = NULL;
+    }
+    if (ctx->log_config != NULL){
         log_config_delete(ctx->log_config);
-    if(lctx.xMutex != NULL)
+        ctx->log_config = NULL;
+    }
+    if(lctx.xMutex != NULL){
         vSemaphoreDelete(lctx.xMutex);
+        lctx.xMutex = NULL;
+    }
     ctx->Gps_fields_OK = 0;
 }
 
