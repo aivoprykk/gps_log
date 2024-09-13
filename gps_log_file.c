@@ -24,20 +24,15 @@
 #include "gpy.h"
 #include "logger_config.h"
 #include "gps_log_events.h"
-#include "logger_common.h"
 
 static const char *TAG = "gps_log";
 ESP_EVENT_DEFINE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
 
-const char * gps_log_event_strings[] = {
-    "GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED",
-    "GPS_LOG_EVENT_LOG_FILES_OPENED", 
-    "GPS_LOG_EVENT_LOG_FILES_SAVED", 
-    "GPS_LOG_EVENT_LOG_FILES_CLOSED",
-    "GPS_LOG_EVENT_GPS_FRAME_LOST",
+const char * const gps_log_event_strings[] = {
+    GPS_LOG_EVENT_LIST(STRINGIFY)
 };
 
-static const char * speed_strings[] = {
+static const char * const speed_strings[] = {
     "m/s", "km/h","knots"
 };
 

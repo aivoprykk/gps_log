@@ -10,15 +10,15 @@
 extern "C" {
 #endif
 
+#include "logger_common.h"
+
 #define PATH_MAX_CHAR_SIZE 64
 #define MAC2STR2(a) *(a), *((a)+1), *((a)+2), *((a)+3), *((a)+4), *((a)+5)
 
+#define SD_FD_LIST(l) l(SD_TXT) l(SD_SBP) l(SD_UBX) l(SD_GPX) l(SD_GPY)
+
 typedef enum {
-    SD_TXT = 0,
-    SD_SBP,
-    SD_UBX,
-    SD_GPX,
-    SD_GPY,
+    SD_FD_LIST(ENUM)
     SD_FD_END
 } sd_fd_t;
 
