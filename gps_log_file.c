@@ -17,7 +17,7 @@
 //#include "sdcard.h"
 #include "vfs.h"
 #include "strbf.h"
-#include "str.h"
+#include "numstr.h"
 #include "ubx.h"
 #include "gpx.h"
 #include "sbp.h"

@@ -14,7 +14,7 @@
 #include "log_private.h"
 #include "logger_common.h"
 #include "ubx.h"
-#include "str.h"
+#include "numstr.h"
 
 static const char * TAG = "gps_data";
 //extern struct UBXMessage ubxMessage;
