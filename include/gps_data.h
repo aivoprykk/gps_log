@@ -2,23 +2,21 @@
 #define GPS_DATA_H
 
 
-#include <stdint.h>
-#include <stdbool.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include "sdkconfig.h"
+#include <stdint.h>
+#include <stdbool.h>
+
 #define DEG2RAD 0.0174532925  // is PI/180 !!!
-#define BUFFER_SIZE 5128      // gewenste buffer grootte voor de GPS groundspeed data, opgelet voor 10Hz moet de buffer veel groter zijn !!! Vb 1852m bij 2000 samples is min 10m/s
-                              // desired buffer size for GPS groundspeed data, be careful for 10Hz the buffer needs to be much larger !!! Eg. 1852m with 2000 samples is min 10m/s
-                              // 25m/s * 3.6 = 90 km/h, 1852m is 74s, 74s * 10Hz = 740 samples, 74s * 20Hz = 1480 samples
-                              // reduce buffer size from 5000 to 1000, so that at 2Hz and 600s there is still a 1-second interval
-#define BUFFER_ALFA 2000      // desired buffer size for alpha speed calculation, it should only accommodate 500m distance !!10
-#define FILTER_MIN_SATS 5     // at 10 Hz this is 200 s, so the lowest speed is then 500m/200s, which is 2.5m/s or < 10 km/h
+#define BUFFER_SIZE CONFIG_GPS_BUFFER_SIZE
+#define BUFFER_ALFA CONFIG_GPS_ALFA_BUFFER_SIZE
+#define NAV_SAT_BUFFER CONFIG_GPS_NAV_SAT_BUFFER_SIZE
+#define FILTER_MIN_SATS 5
 #define FILTER_MAX_sACC 2   
 #define NR_OF_BARS 42         // number of bars in the bar graph
-#define NAV_SAT_BUFFER 10     // GPS_SAT_info buffersize for Mean CNO  values, here 10 NAV_SAT messages
 
 
 // Description of the GPS data processing class
@@ -278,11 +276,19 @@ typedef struct gps_context_s {
 
     bool files_opened;
     const uint8_t * mac_address;
-    struct ubx_config_s *ublox_config;
+    struct ubx_config_s *ubx_device;
     struct gps_log_file_config_s * log_config;
     const char * SW_version;
     uint8_t record;
     uint16_t lost_frames;
+        
+    bool time_set;
+    bool signal_ok;
+    uint16_t first_fix;
+    uint32_t next_time_sync;
+    // float calibration_speed;
+    uint32_t low_speed_seconds;
+    bool ubx_restart_requested;
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG { \
@@ -313,14 +319,20 @@ typedef struct gps_context_s {
     .alfa_window = 0, \
     .alfa_exit = 0, \
     .Mean_heading = 0, \
-    .ublox_config = NULL, \
+    .ubx_device = NULL, \
     .files_opened = false,   \
     .mac_address = 0, \
     .start_logging_millis = 0, \
     .log_config = NULL, \
     .SW_version = 0, \
     .record = 0, \
-    .lost_frames = 0 \
+    .lost_frames = 0, \
+    .time_set = false, \
+    .signal_ok = false, \
+    .first_fix = 0, \
+    .next_time_sync = 0, \
+    .low_speed_seconds = 0, \
+    .ubx_restart_requested = false \
 }
 
 /** 

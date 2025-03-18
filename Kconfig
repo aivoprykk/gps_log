@@ -1,9 +1,31 @@
 menu "Logger GPS Log Module Configuration"
-    config GPS_LOG_ENABLE
+    config GPS_LOG_ENABLED
         bool "Enable GPS Log Module"
+        default n if !UBLOX_ENABLED
         default y
         help
         Enable GPS Log Module
+    if GPS_LOG_ENABLED
+    config GPS_BUFFER_SIZE
+        int "GPS Module Buffer Size (num)"
+        default 5128
+        help
+            Desired buffer size for GPS groundspeed data, be careful for 10Hz or 20Hz the buffer needs to be much larger !!! 
+            Eg. 1852m with 2000 samples is min 10m/s * 3.6 = 36 km/h, 1852m is 185s, 185s * 10Hz = 1850 samples, 185s * 20Hz = 3700 samples
+            Eg. 1852m with 1000 samples is min 20m/s * 3.6 = 72 km/h, 1852m is 92s, 92s * 10Hz = 920 samples, 92s * 20Hz = 1840 samples
+            Eg. 1852m with 740 samples is min 25m/s * 3.6 = 90 km/h, 1852m is 74s, 74s * 10Hz = 740 samples, 74s * 20Hz = 1480 samples
+            Reduce buffer size from 5000 to 1000, so that at 2Hz and 600s there is still a 1-second interval,
+            at 10 Hz this is 200 s, so the lowest speed is then 500m/200s, which is 2.5m/s or < 10 km/h
+    config GPS_ALFA_BUFFER_SIZE
+        int "GPS Module Alfa Buffer Size (num)"
+        default 2000
+        help
+            Desired buffer size for alpha speed calculation, it should only accommodate 500m distance !!10
+    config GPS_NAV_SAT_BUFFER_SIZE
+        int "GPS Module Nav Sat Buffer Size (num)"
+        default 10
+        help
+            GPS_SAT_info buffersize for Mean CNO  values, here 10 NAV_SAT messages are stored
     config GPS_LOG_STACK_SIZE
         int "GPS Log Module Stack Size in bytes"
         default 3072
@@ -40,4 +62,10 @@ menu "Logger GPS Log Module Configuration"
         default 3 if GPS_LOG_LEVEL_ERROR
         default 4 if GPS_LOG_LEVEL_USER
         default 5 if GPS_LOG_LEVEL_NONE
+    endif
+    config GPS_LOG_USE_CJSON
+        bool "Enable CJSON for GPS Log Module"
+        default n
+        help
+            Enable CJSON for GPS Log Module
 endmenu

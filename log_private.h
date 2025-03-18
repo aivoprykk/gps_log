@@ -1,13 +1,12 @@
 #ifndef DB99F2E7_B596_4059_B6AF_FAD2A14CD6A0
 #define DB99F2E7_B596_4059_B6AF_FAD2A14CD6A0
 
-#include <stdbool.h>
-#include <stdint.h>
-#include <stddef.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
 
 struct gps_context_s;
 
@@ -16,6 +15,9 @@ size_t log_write(const struct gps_context_s * context, uint8_t file, const void 
 int log_close(const struct gps_context_s * context, uint8_t file);
 int log_fsync(const struct gps_context_s * context, uint8_t file);
 void printFile(const char *filename);
+
+struct gps_context_s;
+extern struct gps_context_s * gps;
 
 #define NOGPY (log_get_fd((context), SD_GPY)==-1)
 #define NOGPX (log_get_fd((context), SD_GPX)==-1)
@@ -30,71 +32,24 @@ void printFile(const char *filename);
 
 #define GET_FD(f) (context->log_config->filefds[f])
 
-#if (CONFIG_GPS_LOG_LEVEL <= 2)
-
-#include "esp_timer.h"
-#include "esp_log.h"
-
-#ifndef LOG_INFO
-#define LOG_INFO(a, b, ...) ESP_LOGI(a, b, __VA_ARGS__)
+#include "sdkconfig.h"
+#if defined(CONFIG_LOGGER_USE_GLOBAL_LOG_LEVEL)
+#define C_LOG_LEVEL LOGGER_GLOBAL_LOG_LEVEL
+#else
+#define C_LOG_LEVEL CONFIG_GPS_LOG_LEVEL
 #endif
-#ifndef MEAS_START
-#define MEAS_START() uint64_t _start = (esp_timer_get_time())
-#endif
-#ifndef MEAS_END
-#define MEAS_END(a, b, ...) \
-    ESP_LOGI(a, b, __VA_ARGS__, (esp_timer_get_time() - _start))
-#endif
-#endif
+#include "common_log.h"
 
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE) // "A lot of logs to give detailed information"
+#define MIN_numSV_FIRST_FIX 5      // before start logging, changed from 4 to 5 7.1/2023
+#define MAX_Sacc_FIRST_FIX 2       // before start logging
+#define MIN_numSV_GPS_SPEED_OK  4  // minimum number of satellites for calculating speed, otherwise
+#define MAX_Sacc_GPS_SPEED_OK  1   // max Sacc value for calculating speed, otherwise 0
+#define MAX_GPS_SPEED_OK  60       // max speed in m/s for calculating speed, otherwise 0 - [60 m/s = 216 km/h]
 
-#define DLOG LOG_INFO
-#define DMEAS_START MEAS_START
-#define DMEAS_END MEAS_END
-#define ILOG LOG_INFO
-#define IMEAS_START MEAS_START
-#define IMEAS_END MEAS_END
-#define WLOG LOG_INFO
-#define WMEAS_START MEAS_START
-#define WMEAS_END MEAS_END
+#define TIME_DELAY_FIRST_FIX 10       // 10 navpvt messages before start logging
 
-#elif defined(CONFIG_GPS_LOG_LEVEL_INFO) // "Log important events"
-
-#define DLOG(a, b, ...) ((void)0)
-#define DMEAS_START() ((void)0)
-#define DMEAS_END(a, b, ...) ((void)0)
-#define ILOG LOG_INFO
-#define IMEAS_START MEAS_START
-#define IMEAS_END MEAS_END
-#define WLOG LOG_INFO
-#define WMEAS_START MEAS_START
-#define WMEAS_END MEAS_END
-
-#elif defined(CONFIG_GPS_LOG_LEVEL_WARN) // "Log if something unwanted happened but didn't cause a problem"
-
-#define DLOG(a, b, ...) ((void)0)
-#define DMEAS_START() ((void)0)
-#define DMEAS_END(a, b, ...) ((void)0)
-#define ILOG(a, b, ...) ((void)0)
-#define IMEAS_START() ((void)0)
-#define IMEAS_END(a, b, ...) ((void)0)
-#define WLOG LOG_INFO
-#define WMEAS_START MEAS_START
-#define WMEAS_END MEAS_END
-
-#else // "Do not log anything"
-
-#define DLOG(a, b, ...) ((void)0)
-#define DMEAS_START() ((void)0)
-#define DMEAS_END(a, b, ...) ((void)0)
-#define ILOG(a, b, ...) ((void)0)
-#define IMEAS_START() ((void)0)
-#define IMEAS_END(a, b, ...) ((void)0)
-#define WLOG(a, b, ...) ((void)0)
-#define WMEAS_START() ((void)0)
-#define WMEAS_END(a, b, ...) ((void)0)
-#endif
+#define SPEED_DETECTION_MIN 4000  // min average speed over 2s for new run detection (mm/s)
+#define STANDSTILL_DETECTION_MAX  1000  // max average speed over 2s voor stand still detection (mm/s)
 
 #ifdef __cplusplus
 }

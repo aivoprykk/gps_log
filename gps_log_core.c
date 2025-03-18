@@ -1,3 +1,7 @@
+#include "log_private.h"
+#include "gps_data.h"
+
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
 
 #include <stdio.h>
 #include <string.h>
@@ -5,21 +9,21 @@
 #include <sys/unistd.h>
 #include <math.h>
 
-#include "esp_log.h"
+#ifdef CONFIG_LOGGER_VFS_ENABLED
 #include "vfs.h"
-
-#include "gps_data.h"
+#endif
 #include "gps_log_file.h"
-#include "logger_config.h"
-#include "log_private.h"
+// #include "logger_config.h"
 #include "logger_common.h"
-#include "ubx.h"
 #include "numstr.h"
+#include "ubx.h"
+#include "gps_user_cfg.h"
 
 static const char * TAG = "gps_data";
 //extern struct UBXMessage ubxMessage;
 
 #define NR_OF_BAR 42 // aantal bar in de bar_graph
+// #define GPS_TRACE_MSG_SAT 1
 
 // static const char *TAG = "GPS_data";
 typedef struct gps_p_context_s {
@@ -164,39 +168,43 @@ void init_gps_context_fields(gps_context_t *ctx) {
     init_alfa_speed(&ctx->A250, 250);
     init_alfa_speed(&ctx->A500, 500);
     init_alfa_speed(&ctx->a500, 500);
-    if (ctx->ublox_config == NULL)
-        ctx->ublox_config = ubx_config_new();
+    if (ctx->ubx_device == NULL)
+        ctx->ubx_device = ubx_config_new();
     if (ctx->log_config == NULL)
-        ctx->log_config = log_config_new();
+        ctx->log_config = &log_config;
     if(lctx.xMutex == NULL)
         lctx.xMutex = xSemaphoreCreateMutex();
+    gps_user_cfg_init();
     ctx->Gps_fields_OK = 1;
 }
 
 void deinit_gps_context_fields(gps_context_t *ctx) {
     ILOG(TAG, "[%s]", __func__);
     assert(ctx);
-    if (ctx->ublox_config != NULL){
-        ubx_config_delete(ctx->ublox_config);
-        ctx->ublox_config = NULL;
+    if (ctx->ubx_device != NULL){
+        ubx_config_delete(ctx->ubx_device);
+        ctx->ubx_device = NULL;
     }
     if (ctx->log_config != NULL){
-        log_config_delete(ctx->log_config);
+        // log_config_delete(ctx->log_config);
         ctx->log_config = NULL;
     }
     if(lctx.xMutex != NULL){
         vSemaphoreDelete(lctx.xMutex);
         lctx.xMutex = NULL;
     }
+    gps_user_cfg_deinit();
     ctx->Gps_fields_OK = 0;
 }
 
 #if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
 esp_err_t gps_data_printf(const struct gps_data_s *me) {
-    printf("gps_data:{\n");
-    printf("total_distance: %.03f\n", me->total_distance);
-    printf("run_distance: %.03f\n", me->run_distance);
-    printf("alfa_distance: %.03f\n", me->alfa_distance);
+    printf("gps_data:{ ");
+    printf("id: %ld(%ld), ", lctx.index_GPS, lctx.index_GPS % BUFFER_SIZE);
+    printf("run_start_time: %lu, ", me->run_start_time);
+    printf("run_distance: %.03f, ", me->run_distance);
+    printf("alfa_distance: %.03f, ", me->alfa_distance);
+    printf("total_distance: %.03f ", me->total_distance);
     printf("}\n");
     return ESP_OK;
 }
@@ -210,15 +218,17 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     assert(context);
     // logger_config_t *config = context->config;
     // assert(config);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     ubx_msg_t * ubxMessage = &ubx->ubx_msg;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
-    if ((context->S2.avg_s > 20000) && (ubx->rtc_conf->nav_mode == 1) && (lctx.dynamic_state == 0)) {  
+    if ((context->S2.avg_s > 20000) && (ubx->rtc_conf->nav_mode == UBX_MODE_SEA) && (lctx.dynamic_state == 0)) {
+        WLOG(TAG, "[%s] WARN: mode changed to PORTABLE", __func__); 
         // switch to dynamic_model "portable", only works with speed<25 m/s !!!
         lctx.dynamic_state = 1;  // test with 5 m/s, this is 18 km/h
         ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
     }
-    if ((context->S2.avg_s < 15000) && (ubx->rtc_conf->nav_mode == 1) && (lctx.dynamic_state == 1)) { 
+    if ((context->S2.avg_s < 15000) && (ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) && (lctx.dynamic_state == 1)) { 
+        WLOG(TAG, "[%s] WARN: mode changed to SEA", __func__); 
         // switch to dynamic_model "sea", only works with speed<25 m/s !!!
         lctx.dynamic_state = 0;  // test with 4.5 m/s, this is 16.2 km/h
         ubx_set_nav_mode(ubx, UBX_MODE_SEA);
@@ -249,8 +259,10 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     }
     xSemaphoreGive(lctx.xMutex);
 #if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
-    gps_data_printf(me);
-    //gps_p_context_printf(&lctx);
+    if (lctx.index_GPS % sample_rate == 0 && gSpeed > STANDSTILL_DETECTION_MAX) {
+        gps_data_printf(me);
+        gps_p_context_printf(&lctx);
+    }
 #endif
     //printf("Speed upadated gspeed: %"PRIu32" avgSpeed:%"PRIu32"\n", gSpeed, lctx.avg_gSpeed);
     return ESP_OK;
@@ -284,18 +296,18 @@ struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
     me->index_SAT_info = 0;
     return me;
 }
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SAT)
 esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
-    printf("GPS_SAT_info:{\n");
-    printf("mean_cno: %hu\n", me->mean_cno);
-    printf("min_cno: %hhu\n", me->min_cno);
-    printf("max_cno: %hhu\n", me->max_cno);
-    printf("nr_sats: %hhu\n", me->nr_sats);
-    printf("index_SAT_info: %lu\n", me->index_SAT_info);
-    printf("Mean_mean_cno: %hu\n", me->sat_info.Mean_mean_cno);
-    printf("Mean_max_cno: %"PRIu8"\n", me->sat_info.Mean_max_cno);
-    printf("Mean_min_cno: %hhu\n", me->sat_info.Mean_min_cno);
-    printf("Mean_numSV: %hhu\n", me->sat_info.Mean_numSV);
+    printf("GPS_SAT_info:{ ");
+    printf("mean_cno: %hu, ", me->mean_cno);
+    printf("min_cno: %hhu, ", me->min_cno);
+    printf("max_cno: %hhu, ", me->max_cno);
+    printf("nr_sats: %hhu, ", me->nr_sats);
+    printf("index_SAT_info: %lu, ", me->index_SAT_info);
+    printf("Mean_mean_cno: %hu, ", me->sat_info.Mean_mean_cno);
+    printf("Mean_max_cno: %"PRIu8", ", me->sat_info.Mean_max_cno);
+    printf("Mean_min_cno: %hhu, ", me->sat_info.Mean_min_cno);
+    printf("Mean_numSV: %hhu, ", me->sat_info.Mean_numSV);
     printf("}\n");
     return ESP_OK;
 }
@@ -347,8 +359,8 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
             me->sat_info.Mean_numSV = me->nr_sats;
         }
         me->index_SAT_info++;
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
-        //gps_sat_info_printf(me);
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE) && defined(GPS_TRACE_MSG_SAT)
+        gps_sat_info_printf(me);
 #endif
     }
 };
@@ -442,7 +454,7 @@ struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint1
     return me;
 }
 
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SPEED)
 // esp_err_t gps_speed_serialize_json(struct gps_speed_by_dist_s *me, cJSON * root) {
 //     cJSON *gps_speed = cJSON_CreateObject();
 //     if (gps_speed == NULL) {
@@ -596,7 +608,7 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
     assert(context);
     // logger_config_t *config = context->config;
     // assert(config);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
     uint32_t actual_run = context->run_count;
     me->m_Set_Distance = me->m_set_distance * 1000 * sample_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
@@ -666,8 +678,8 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->record = 0;
     }
     me->old_run = actual_run;
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
-    //gps_speed_printf(me);
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SPEED)
+    gps_speed_printf(me);
 #endif
     return me->m_max_speed;
 }
@@ -680,7 +692,7 @@ struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16
     me->time_window = tijdvenster;
     return me;
 }
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_TIME)
 esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
     printf("GPS_time:{\n");
     printf("time_window: %hu\n", me->time_window);
@@ -751,7 +763,7 @@ void reset_time_stats(struct gps_speed_by_time_s *me) {
 
 float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
     assert(context);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
     uint32_t actual_run = context->run_count, time_window_delta = me->time_window * sample_rate;
     if (time_window_delta < BUFFER_SIZE) {  // if time window is smaller than the sample_rate*BUFFER, use normal buffer
@@ -858,8 +870,8 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
         //return me->s_max_speed;
     }
     //}
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
-    //gps_time_printf(me);
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_TIME)
+    gps_time_printf(me);
 #endif
     return me->s_max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
 }
@@ -871,7 +883,7 @@ struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_r
     return me;
 }
     
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_ALPHA)
 esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
     printf("alfa_speed:{\n");
     printf("alfa_circle_square: %.03f\n", me->alfa_circle_square);
@@ -922,7 +934,7 @@ esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
 // an extra variable, m_speed_alfa, is provided in GPS_speed!!!
 float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, struct gps_speed_by_dist_s *M) {
     assert(context);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
 
     // now calculate the absolute distance alfa_speed::alfa_update(GPS_speed M)
@@ -976,8 +988,8 @@ float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, str
     }
     else
         me->display_max_speed = me->avg_speed[9];
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
-    //alfa_speed_printf(me);
+#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_ALPHA)
+    alfa_speed_printf(me);
 #endif
     return me->alfa_speed_max;
 }
@@ -990,15 +1002,13 @@ void reset_alfa_stats(struct gps_speed_alfa_s *me) {
 
 /* Calculation of the average heading over the last 10 seconds 
 ************************************************************************/
-#define SPEED_DETECTION_MIN 4000  // min average speed over 2s for new run detection (mm/s)
-#define STANDSTILL_DETECTION_MAX  1000  // max average speed over 2s voor stand still detection (mm/s)
 #define MEAN_HEADING_TIME 15  // time in sec for calculating average heading
 #define STRAIGHT_COURSE_MAX_DEV 10  // max angle deviation for straight ahead recognition (degrees)
 #define JIBE_COURSE_DEVIATION_MIN 50  // min angle deviation for jibe detection (degrees)
 #define TIME_DELAY_NEW_RUN 10U // uint time_delay_new_run
 uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
     assert(context);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
     uint16_t speed_detection_min = SPEED_DETECTION_MIN;  // minimum snelheid 4m/s (14 km/h)voor snelheid display
     //uint16_t standstill_detection_max = STANDSTILL_DETECTION_MAX;  // maximum snelheid 1 m/s (3.6 km/h) voor stilstand herkenning, was 1.5 m/s change SW5.51
@@ -1052,7 +1062,7 @@ uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S
  */
 float alfa_indicator(gps_context_t *context, float actual_heading) {
     assert(context);
-    ubx_config_t *ubx = context->ublox_config;
+    ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
     struct gps_speed_by_dist_s M250 = context->M250;
     struct gps_speed_by_dist_s M100 = context->M100;
@@ -1112,3 +1122,5 @@ float dis_point_line(float long_act, float lat_act, float long_1, float lat_1, f
  delta_heading=delta_heading-360; if(delta_heading<-180)
  delta_heading=delta_heading+360;
  */
+
+#endif

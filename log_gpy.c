@@ -1,4 +1,7 @@
 
+#include "log_private.h"
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
+#if defined(CONFIG_GPS_LOG_GPY)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,14 +9,12 @@
 #include <sys/time.h>
 #include <errno.h>
 
-#include "esp_log.h"
 #include <esp_mac.h>
 
 #include "gpy.h"
 #include "ubx.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
-#include "log_private.h"
 
 //static const char * TAG = "gpy";
 // extern int next_gpy_full_frame;
@@ -104,7 +105,7 @@ void log_GPY(struct gps_context_s *context) {
         return;
     // convert a date and time into unix time, offset 1970, Arduino 8bytes = LL
     // !!!!!
-    const ubx_msg_t * ubxMessage = &context->ublox_config->ubx_msg;
+    const ubx_msg_t * ubxMessage = &context->ubx_device->ubx_msg;
     time_t utc_Sec;
     struct tm frame_time;  // time elements structure
     frame_time.tm_sec = ubxMessage->navPvt.second;
@@ -176,3 +177,6 @@ void log_GPY(struct gps_context_s *context) {
         WRITEGPY(&gpy_frame_compressed, 20 * sizeof(uint8_t));
     }
 }
+
+#endif
+#endif

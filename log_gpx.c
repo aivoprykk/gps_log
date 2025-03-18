@@ -1,3 +1,5 @@
+#include "log_private.h"
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
 
 #include <errno.h>
 #include <stdio.h>
@@ -5,14 +7,11 @@
 #include <string.h>
 #include <sys/unistd.h>
 
-#include "esp_log.h"
-
 #include "gpx.h"
 #include "ubx_msg.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
 #include "ubx.h"
-#include "log_private.h"
 
 //static const char* TAG = "gpx";
 
@@ -21,7 +20,7 @@
 void log_GPX(struct gps_context_s * context, int part) {
     if(NOGPX)
         return;
-    const struct ubx_msg_s *ubxMessage = &context->ublox_config->ubx_msg;
+    const struct ubx_msg_s *ubxMessage = &context->ubx_device->ubx_msg;
     char bufferTx[512];
     int i, y;
     int year, month, day, hour, minute, sec, sat;
@@ -96,3 +95,5 @@ void log_GPX(struct gps_context_s * context, int part) {
         WRITEGPX(bufferTx, y * sizeof(uint8_t));
     }
 }
+
+#endif
