@@ -105,7 +105,7 @@ gps_log_file_config_t *log_config_init() {
     int statok=-1, i = 0;
     strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
     strbf_finish(&buf);
-    DLOG(TAG, "[%s] log path: %s", __func__, &log_config.base_path[0]);
+    DLOG(TAG, "[%s] log path: %s\n", __func__, &log_config.base_path[0]);
     return &log_config;
 }
 
@@ -203,7 +203,7 @@ void open_files(gps_context_t *context) {
     }
     const char * fn = 0;
     for(uint8_t i = 0; i < SD_FD_END; i++) {
-        DLOG(TAG, "[%s] opening %s", __func__, config->filenames[i]);
+        DLOG(TAG, "[%s] opening %s\n", __func__, config->filenames[i]);
         if (GETBIT(config->log_file_bits, i)) {
             fn = 
 #if defined(GPS_LOG_ENABLE_GPY)
@@ -212,7 +212,7 @@ void open_files(gps_context_t *context) {
             i == SD_UBX ? ".ubx" : i == SD_SBP ? ".sbp" : i == SD_GPX ? ".gpx" : ".txt";
             strcpy(config->filenames[i], config->filename_NO_EXT);
             strcat(config->filenames[i], fn);
-            DLOG(TAG, "[%s] opening %s", __func__, config->filenames[i]);
+            DLOG(TAG, "[%s] opening %s\n", __func__, config->filenames[i]);
 #if defined(CONFIG_LOGGER_VFS_ENABLED)
             GET_FD(i) = s_open(config->filenames[i], config->base_path, FILE_APPEND);
             if(GET_FD(i)<=0) {
@@ -354,7 +354,7 @@ void model_info(const gps_context_t *context, int model) {
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, context->ubx_device->ubx_msg.count_nav_pvt);
         WRITETXT(sb.start, sb.cur - sb.start);
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
@@ -438,7 +438,7 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     if (ublox_hw > UBX_TYPE_M8)
         strbf_sprintf(&sb, "%02x\n", ubxMessage->ubxId.ubx_id_6);
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-    DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
+    DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
 }
 
 void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s *M) {
@@ -474,7 +474,7 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
         strbf_putl(&sb, M->m_set_distance);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
@@ -517,7 +517,7 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
         } else
             strbf_puts(&sb, "\n");
         WRITETXT(message, sb.cur - sb.start);
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }
@@ -556,7 +556,7 @@ void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s 
         strbf_putl(&sb, M->m_set_distance);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
+        DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
         strbf_reset(&sb);
     }
 }

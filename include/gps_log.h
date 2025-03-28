@@ -10,7 +10,7 @@ struct gps_context_s;
 void gps_task_start(void);
 void gps_task_stop(void);
 void gps_init(struct gps_context_s * _gps);
-void gps_uninit(void);
+void gps_deinit(void);
 int gps_shut_down(void);
 
 #ifdef __cplusplus

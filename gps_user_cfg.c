@@ -21,7 +21,11 @@ static const char * TAG = "gps_user_cfg"; // for logging
 #define CFG_TO_BASE(l) (l-CFG_GPS_ITEM_BASE)
 #define SPEED_UNIT_ITEM_LIST(l) l(m/s) l(km/h) l(knots)
 #define SAMPLE_RATE_ITEM_LIST(l) l(1 Hz) l(5 Hz) l(10 Hz) l(16 Hz) l(20 Hz)
-#define DYNAMIC_MODEL_ITEM_LIST(l) l(Portable) l(Sea) l(Automotive)
+/// Portable -  Applications with low acceleration, e.g. portable devices. Suitable for most situations; max velocity is 310ms deviation medium
+/// Sea - Recommended for applications at sea, with zero vertical velocity. Zero vertical velocity assumed. Sea level assumed; max velocity is 25ms deviation medium
+/// Automotive - Used for applications with equivalent dynamics to those of a passenger car. Low vertical acceleration assumed; max velocity 100ms deviation medium
+/// Pedestrian Applications with low acceleration and speed, e.g. how a pedestrian would move. Low acceleration assumed; max velocity 30ms, deviation small
+#define DYNAMIC_MODEL_ITEM_LIST(l) l(Portable) l(Sea) l(Automotive) l(Pedestrian)
 #define GSS_DESC_ITEM_LIST(l) l(G + E + B + R) l(G + B + R) l(G + E + R) l(G + E + B) l(G + R) l(G + B) l(G + E)
 #define GNSS_DESC_VAL_LIST(l) l(111) l(107) l(103) l(47) l(99) l(43) l(39)
 #define TIMEZONE_ITEM_LIST(l) l(UTC) l(UTC+1) l(UTC+2) l(UTC+3)
@@ -148,10 +152,17 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 item->value = rtc_config.msgout_sat ? 1 : 0;
                 item->desc = rtc_config.msgout_sat ? "on" : "off";
                 break;
+            case gps_cfg_dynamic_model_auto:
+                item->value = rtc_config.nav_mode_auto ? 1 : 0;
+                item->desc = rtc_config.nav_mode_auto ? "on" : "off";
+                break;
             case gps_cfg_dynamic_model:
                 item->value = rtc_config.nav_mode;
                 if(item->value < 3) {
                     item->desc = dynamic_models[item->value];
+                }
+                else if(item->value == 4) {
+                    item->desc = dynamic_models[item->value-1];
                 }
                 else {
                     item->desc = "portable";
@@ -258,9 +269,13 @@ int set_gps_cfg_item(int num) {
             case gps_cfg_log_ubx_nav_sat:
                 rtc_config.msgout_sat = rtc_config.msgout_sat ? 0 : 1;
                 break;
+            case gps_cfg_dynamic_model_auto:
+                rtc_config.nav_mode_auto = rtc_config.nav_mode_auto ? 0 : 1;
+                break;
             case gps_cfg_dynamic_model:
-                if(rtc_config.nav_mode == 0) rtc_config.nav_mode = 2;
+                if(rtc_config.nav_mode == 0) rtc_config.nav_mode = 4;
                 else if(rtc_config.nav_mode == 2) rtc_config.nav_mode = 1;
+                else if(rtc_config.nav_mode == 4) rtc_config.nav_mode = 2;
                 else rtc_config.nav_mode = 0;
                 break;
             case gps_cfg_file_date_time:
@@ -359,7 +374,11 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
                 ret = set_hhu(value, &rtc_config.gnss, 0);
                 if(!ret) changed = gps_cfg_gnss;
                 break;
-            case gps_cfg_dynamic_model:  // choice for dynamic model "Sea",if 0 model "portable" is used !!
+            case gps_cfg_dynamic_model_auto: /// wether device can switch mode automatically
+                ret = set_hhu(value, (uint8_t*)&rtc_config.nav_mode_auto, 0);
+                if(!ret) changed = gps_cfg_dynamic_model_auto;
+                break;
+            case gps_cfg_dynamic_model:  // sea, portable, automotive, pedestrian
                 ret = set_hhu(value, (uint8_t*)&rtc_config.nav_mode, 0);
                 if(!ret) changed = gps_cfg_dynamic_model;
                 break;
@@ -435,7 +454,7 @@ int gps_config_set(const char *str, void *root, uint8_t force) {
     }
     uint8_t pos = gps_cfg_get_pos(var);
     if (pos >= 254) {
-        DLOG(TAG, "[%s] ! var", __func__);
+        DLOG(TAG, "[%s] ! var\n", __func__);
         changed = 255;
         goto err;
     }
@@ -543,13 +562,14 @@ static const char * const cfg_values [] = {
 ",\"title\":\"",
 ",\"info\":\"Speed display units\",\"type\":\"int\"",
 ",\"info\":\"gps_rate in Hz\",\"type\":\"int\"",
-",\"info\":\"choice for dynamic model 'Sea', if 0 model 'Portable' is used !!\",\"type\":\"int\"",
+",\"info\":\"choice for dynamic model: 'Portable' (max 310m/s), 'Sea' (max 25m/s) and 'Automotive' (max 100m/s) deviation medium, 'Pedestrian' (max 30m/s) deviation small\",\"type\":\"int\"",
 ",\"info\":\"log to ",
 "\",\"type\":\"bool\"",
-",\"info\":\"log nav sat msg to .ubx",
+",\"info\":\"log nav sat msg to .ubx\", \"depends\":\"",
 ",\"info\":\"timezone: The local time difference in hours with UTC\",\"type\":\"float\",\"ext\":\"h\"",
 ",\"info\":\"type of filenaming, with MAC adress or datetime\",\"type\":\"int\"",
 ",\"info\":\"your preferred filename base\",\"type\":\"str\"",
+",\"info\":\"Wether device can switch dynamic model automatically. When disabled make sure dynamic model is in your expected speed limits.",
 };
 
 static uint8_t add_from_list(strbf_t *lsb, const char * const *list, size_t len) {
@@ -600,14 +620,14 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
             case gps_cfg_speed_unit:  // speed units, 0 = m/s 1 = km/h, 2 = knots
                 strbf_putn(lsb, c_gps_cfg.speed_unit);
                 if (mode) {
-                    strbf_puts(lsb, cfg_values[3]); // ",\"info\":\"Speed display units\",\"type\":\"int\""
+                    strbf_puts(lsb, cfg_values[3]);
                     add_from_list(lsb, speed_units, lengthof(speed_units));
                 }
                 break;
             case gps_cfg_sample_rate:  // gps_rate in Hz, 1, 5 or 10Hz !!!
                 strbf_putn(lsb, rtc_config.output_rate);
                 if (mode) {
-                    strbf_puts(lsb, cfg_values[4]); // ",\"info\":\"gps_rate in Hz\",\"type\":\"int\""
+                    strbf_puts(lsb, cfg_values[4]);
                     strbf_puts(lsb, cfg_values[0]);
                     for (uint8_t i = 0, j = lengthof(sample_rates); i < j; i++) {
                         strbf_puts(lsb, cfg_values[1]);
@@ -658,11 +678,27 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                     strbf_puts(lsb, "]");
                 }
                 break;
-            case gps_cfg_dynamic_model: // choice for dynamic model "Sea",if 0 model "portable" is used !!
+            case gps_cfg_dynamic_model:
                 strbf_putn(lsb, rtc_config.nav_mode);
                 if (mode) {
-                    strbf_puts(lsb, cfg_values[5]); // ",\"info\":\"choice for dynamic model 'Sea', if 0 model 'Portable' is used !!\",\"type\":\"int\",");
-                    add_from_list(lsb, dynamic_models, lengthof(dynamic_models));
+                    strbf_puts(lsb, cfg_values[5]);
+                    strbf_puts(lsb, cfg_values[0]);
+                    for (uint8_t i = 0, j = lengthof(dynamic_models); i < j; i++) {
+                        strbf_puts(lsb, cfg_values[1]);
+                        strbf_putn(lsb, i < 3 ? i : i+1);
+                        strbf_puts(lsb, cfg_values[2]);
+                        strbf_puts(lsb, dynamic_models[i]);
+                        strbf_puts(lsb, "\"}");
+                        if (i < j - 1) strbf_putc(lsb, ',');
+                    }
+                    strbf_puts(lsb, "]");
+                }
+                break;
+            case gps_cfg_dynamic_model_auto: // )])||!strcmp(name, "logTXT")) {  // switchinf off .txt files
+                strbf_putc(lsb, rtc_config.nav_mode_auto == 1 ? '1' : '0');
+                if (mode) {
+                    strbf_puts(lsb, cfg_values[12]); // ",\"info\":\"log to"
+                    strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
             case gps_cfg_log_txt: // )])||!strcmp(name, "logTXT")) {  // switchinf off .txt files
@@ -685,6 +721,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putn(lsb, rtc_config.msgout_sat);
                 if (mode) {
                     strbf_puts(lsb, cfg_values[8]); // ",\"info\":\"log nav sat msg to .ubx"
+                    strbf_puts(lsb, config_gps_items[CFG_TO_BASE(gps_cfg_log_ubx)]); // depends on logUBX
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;

@@ -33,8 +33,8 @@ extern struct gps_context_s * gps;
 #define GET_FD(f) (context->log_config->filefds[f])
 
 #include "sdkconfig.h"
-#if defined(CONFIG_LOGGER_USE_GLOBAL_LOG_LEVEL)
-#define C_LOG_LEVEL LOGGER_GLOBAL_LOG_LEVEL
+#if (defined(CONFIG_LOGGER_USE_GLOBAL_LOG_LEVEL) && CONFIG_LOGGER_GLOBAL_LOG_LEVEL < CONFIG_GPS_LOG_LEVEL)
+#define C_LOG_LEVEL CONFIG_LOGGER_GLOBAL_LOG_LEVEL
 #else
 #define C_LOG_LEVEL CONFIG_GPS_LOG_LEVEL
 #endif

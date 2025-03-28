@@ -40,9 +40,10 @@ extern const size_t gps_user_cfg_item_count;
 #define CFG_GPS_USER_OTHER_ITEMS(l, n) \
 l(log_ubx_nav_sat,(CFG_GPS_ITEM_BASE + n)) \
  l(dynamic_model,(CFG_GPS_ITEM_BASE + n + 1)) \
- l(file_date_time,(CFG_GPS_ITEM_BASE + n + 2)) \
- l(ubx_file,(CFG_GPS_ITEM_BASE + n + 3))
-#define CFG_GPS_USER_OTHER_ITEMS_NUM 4
+ l(dynamic_model_auto,(CFG_GPS_ITEM_BASE + n + 2)) \
+ l(file_date_time,(CFG_GPS_ITEM_BASE + n + 3)) \
+ l(ubx_file,(CFG_GPS_ITEM_BASE + n + 4))
+#define CFG_GPS_USER_OTHER_ITEMS_NUM 5
 
 #define CFG_GPS_USER_CFG_ITEM_LIST(l) \
  CFG_GPS_USER_GNSS_ITEMS(l, 0) \

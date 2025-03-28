@@ -490,6 +490,8 @@ int32_t gps_last_speed_smoothed(uint8_t average_records);
  */
 int32_t gps_last_sec_speed_smoothed(uint8_t average_records);
 
+void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed);
+
 #ifdef __cplusplus
 }
 #endif

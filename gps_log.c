@@ -69,7 +69,7 @@ gps_context_t * gps = 0;
 
 ESP_EVENT_DEFINE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
 
-#if (CONFIG_GPS_LOG_LEVEL < 2 || CONFIG_LOGGER_GLOBAL_LOG_LEVEL < 2)
+#if (C_LOG_LEVEL < 2)
 const char * const _gps_log_event_strings[] = {
     GPS_LOG_EVENT_LIST(STRINGIFY)
 };
@@ -309,12 +309,12 @@ static void gpsTask(void *parameter) {
     struct nav_pvt_s * nav_pvt = &ubxMessage->navPvt;
     uint8_t try_setup_times = 5;
     while (gps_task_is_running) {
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 2 || defined(DEBUG))
-        if (loops++ > 500) {
-            task_memory_info(__func__);
-            loops = 0;
-        }
-#endif
+// #if (C_LOG_LEVEL < 2 || defined(DEBUG))
+//         if (loops++ > 500) {
+//             task_memory_info(__func__);
+//             loops = 0;
+//         }
+// #endif
         now = get_millis();
         if (!ubx_dev->ready || !ubxMessage->mon_ver.hwVersion[0] || gps->ubx_restart_requested) {
             mt = now - (ubx_dev->ready ? ubx_dev->ready_time : 5000);
@@ -409,7 +409,7 @@ void gps_init(gps_context_t * _gps) {
 #endif
 }
 
-void gps_uninit(void) {
+void gps_deinit(void) {
     ILOG(TAG, "[%s]", __func__);
 #if defined(GPS_TIMER_STATS)
     ESP_ERROR_CHECK(esp_timer_delete(gps_periodic_timer));
@@ -418,9 +418,9 @@ void gps_uninit(void) {
 
 int gps_shut_down() {
     ILOG(TAG, "[%s]", __func__);
+    if(!gps) return 0;
     struct ubx_config_s *ubx_dev = gps->ubx_device;
-    if ((!ubx_dev || !ubx_dev->uart_setup_ok)) 
-        return 0;
+    if ((!ubx_dev || !ubx_dev->uart_setup_ok)) return 0;
     int ret = 0;
     if(!ubx_dev)
         goto end;
@@ -451,9 +451,6 @@ int gps_shut_down() {
     gps_task_stop();
     ubx_off(ubx_dev);
     gps->time_set = 0;
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 2 || defined(DEBUG))
-    task_memory_info(__func__);
-#endif
     end:
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_SHUT_DOWN_DONE, NULL, 0, portMAX_DELAY);
     // if (!no_sleep) {
