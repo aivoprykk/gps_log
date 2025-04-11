@@ -46,7 +46,6 @@ static SemaphoreHandle_t c_sem_lock = 0;
 // global unit for gps user config.
 RTC_DATA_ATTR struct gps_user_cfg_s c_gps_cfg = GPS_USER_CFG_DEFAULTS();
 extern struct gps_context_s *gps;
-extern struct ubx_rtc_config_s rtc_config;
 extern gps_log_file_config_t log_config;
 
 void gps_user_cfg_init(void) {

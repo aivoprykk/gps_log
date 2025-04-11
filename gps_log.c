@@ -259,7 +259,6 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                                 gps_data->run_start_time = now;
                                 gps->record = 0;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NEW_RUN, NULL, 0, portMAX_DELAY);
-                                // cancel_lcd_ui_delay();
                             }
                         }
                         gps->old_run_count = gps->run_count;

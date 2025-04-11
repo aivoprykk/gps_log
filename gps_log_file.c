@@ -32,7 +32,6 @@
 static const char *TAG = "gps_log";
 
 RTC_DATA_ATTR gps_log_file_config_t log_config = GPS_LOG_DEFAULT_CONFIG();
-extern gps_user_cfg_t c_gps_cfg;
 
 // static const char * const speed_units[] = {
 //     "m/s", "km/h","knots"
@@ -253,8 +252,7 @@ void flush_files(const gps_context_t *context) {
     if (!context->files_opened) {
         return;
     }
-    ubx_rtc_config_t *config = context->ubx_device->rtc_conf;
-    if (config->output_rate <= 10) {  //@18Hz still lost points !!!
+    if (rtc_config.output_rate <= 10) {  //@18Hz still lost points !!!
         if (load_balance == 0) {
             log_fsync(context, SD_UBX);
         }

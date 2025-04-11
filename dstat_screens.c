@@ -7,7 +7,6 @@
 // extern struct context_s m_context;
 // extern struct context_rtc_s m_context_rtc;
 extern struct gps_context_s * gps;
-extern struct gps_user_cfg_s c_gps_cfg;
 
 static inline float get_avg(const double *b) {
     return (float) ((b[9] + b[8] + b[7] + b[6] + b[5]) / 5) * c_gps_cfg.speed_calibration;
@@ -220,91 +219,91 @@ const char s3600[] = "1h";
 const char ttime[] = "Time";
 
 const screen_f_t avail_fields[] = {
-    {0, 0, .value.num = S10_display_last, "10sLST", "L", s10},
-    {1, 0, .value.num = S10_display_max, "10sMAX", "M", s10},
-    {2, 0, .value.num = S10_display_avg, "10sAVG", "10sA", s10},
-    {3, 1, .value.timestr = S10_display_max_time, "10sMTM", "T", s10},
+    {fld_s10_display_last, 0, .value.num = S10_display_last, "10sLST", "L", s10},
+    {fld_s10_display_max, 0, .value.num = S10_display_max, "10sMAX", "M", s10},
+    {fld_s10_display_avg, 0, .value.num = S10_display_avg, "10sAVG", "10sA", s10},
+    {fld_s10_display_max_time, 1, .value.timestr = S10_display_max_time, "10sMTM", "T", s10},
 
-    {4, 0, .value.num = S2_display_last, "2sLST", "L", s2},
-    {5, 0, .value.num = S2_display_max, "2sMAX", "M", s2},
+    {fld_s2_display_last, 0, .value.num = S2_display_last, "2sLST", "L", s2},
+    {fld_s2_display_max, 0, .value.num = S2_display_max, "2sMAX", "M", s2},
     {0},
-    {7, 1, .value.timestr = S2_display_max_time, "2sMTm", "T", s2},
+    {fld_s2_display_max_time, 1, .value.timestr = S2_display_max_time, "2sMTm", "T", s2},
 
-    {8, 0, .value.num = M500_display_last, "500LST", "L", m500}, // shows 0
-    {9, 0, .value.num = M500_display_max, "500MAX", "M", m500}, // shows 0
+    {fld_m500_display_last, 0, .value.num = M500_display_last, "500LST", "L", m500}, // shows 0
+    {fld_m500_display_max, 0, .value.num = M500_display_max, "500MAX", "M", m500}, // shows 0
     {0},
-    {11, 1, .value.timestr = M500_display_max_time, "500MTM", "T", m500},
+    {fld_m500_display_max_time, 1, .value.timestr = M500_display_max_time, "500MTM", "T", m500},
 
-    {12, 0, .value.num = M250_display_last, "250LST", "L", m250}, // shows 0
-    {13, 0, .value.num = M250_display_max, "250MAX", "M", m250}, // shows 0
+    {fld_m250_display_last, 0, .value.num = M250_display_last, "250LST", "L", m250}, // shows 0
+    {fld_m250_display_max, 0, .value.num = M250_display_max, "250MAX", "M", m250}, // shows 0
     {0},
-    {15, 1, .value.timestr = M250_display_max_time, "250mMTM", "T", m250},
+    {fld_m250_display_max_time, 1, .value.timestr = M250_display_max_time, "250mMTM", "T", m250},
 
-    {16, 0, .value.num = S10_r1_display, "10sR1", "R1", s10},
-    {17, 0, .value.num = S10_r2_display, "10sR2", "R2", s10},
-    {18, 0, .value.num = S10_r3_display, "10sR3", "R3", s10},
-    {19, 0, .value.num = S10_r4_display, "10sR4", "R4", s10},
-    {20, 0, .value.num = S10_r5_display, "10sR5", "R5", s10},
+    {fld_s10_r1_display, 0, .value.num = S10_r1_display, "10sR1", "R1", s10},
+    {fld_s10_r2_display, 0, .value.num = S10_r2_display, "10sR2", "R2", s10},
+    {fld_s10_r3_display, 0, .value.num = S10_r3_display, "10sR3", "R3", s10},
+    {fld_s10_r4_display, 0, .value.num = S10_r4_display, "10sR4", "R4", s10},
+    {fld_s10_r5_display, 0, .value.num = S10_r5_display, "10sR5", "R5", s10},
 
-    {21, 0, .value.num = M1852_display_last, "NmLST", "L", m1852}, // shows 0
-    {22, 0, .value.num = M1852_display_max, "NmMAX", "M", m1852}, // shows 0
+    {fld_m1852_display_last, 0, .value.num = M1852_display_last, "NmLST", "L", m1852}, // shows 0
+    {fld_m1852_display_max, 0, .value.num = M1852_display_max, "NmMAX", "M", m1852}, // shows 0
     {0},
-    {24, 1, .value.timestr = M1852_display_max_time, "NmMTM", "T", m1852},
+    {fld_m1852_display_max_time, 1, .value.timestr = M1852_display_max_time, "NmMTM", "T", m1852},
 
-    {25, 0, .value.num = A500_display_last, "ALFLST", "L", a500},
-    {26, 0, .value.num = A500_display_max, "ALFMAX", "M", a500},
-    {27, 0, .value.num = A500_display_avg, "ALFAVG", "AlfA", a500},
-    {28, 1, .value.timestr = A500_display_max_time, "ALFMTM", "T", a500},
+    {fld_a500_display_last, 0, .value.num = A500_display_last, "ALFLST", "L", a500},
+    {fld_a500_display_max, 0, .value.num = A500_display_max, "ALFMAX", "M", a500},
+    {fld_a500_display_avg, 0, .value.num = A500_display_avg, "ALFAVG", "AlfA", a500},
+    {fld_a500_display_max_time, 1, .value.timestr = A500_display_max_time, "ALFMTM", "T", a500},
 
-    {29, 0, .value.num = M100_display_last, "100LST", "L", m100},
-    {30, 0, .value.num = M100_display_max, "100MAX", "M", m100},
+    {fld_m100_display_last, 0, .value.num = M100_display_last, "100LST", "L", m100},
+    {fld_m100_display_max, 0, .value.num = M100_display_max, "100MAX", "M", m100},
     {0},
-    {32, 1, .value.timestr = M100_display_max_time, "100MTM", "T", m100},
+    {fld_m100_display_max_time, 1, .value.timestr = M100_display_max_time, "100MTM", "T", m100},
 
-    {33, 0, .value.num = S1800_display_last, ".5hLST", "L", s1800},
-    {34, 0, .value.num = S1800_display_max, ".5hMAX", "M", s1800},
+    {fld_s1800_display_last, 0, .value.num = S1800_display_last, ".5hLST", "L", s1800},
+    {fld_s1800_display_max, 0, .value.num = S1800_display_max, ".5hMAX", "M", s1800},
     {0},
-    {36, 1, .value.timestr = S1800_display_max_time, ".5hMTM", "T", s1800},
+    {fld_s1800_display_max_time, 1, .value.timestr = S1800_display_max_time, ".5hMTM", "T", s1800},
 
-    {37, 0, .value.num = S3600_display_last, "1hLST", "L", s3600},
-    {38, 0, .value.num = S3600_display_max, "1hMAX", "M", s3600},
+    {fld_s3600_display_last, 0, .value.num = S3600_display_last, "1hLST", "L", s3600},
+    {fld_s3600_display_max, 0, .value.num = S3600_display_max, "1hMAX", "M", s3600},
     {0},
-    {40, 1, .value.timestr = S3600_display_max_time, "1hMTM", "T", s3600},
+    {fld_s3600_display_max_time, 1, .value.timestr = S3600_display_max_time, "1hMTM", "T", s3600},
 
-    {41, 0, .value.num = distance, "Dist", "Dst", "Distance"},
+    {fld_distance, 0, .value.num = distance, "Dist", "Dst", "Distance"},
 
-    {42, 0, .value.num = A500_r1_display, "ALFR1", "R1", a500},
-    {43, 0, .value.num = A500_r2_display, "ALFR2", "R2", a500},
-    {44, 0, .value.num = A500_r3_display, "ALFR3", "R3", a500},
-    {45, 0, .value.num = A500_r4_display, "ALFR4", "R4", a500},
-    {46, 0, .value.num = A500_r5_display, "ALFR5", "R5", a500},
+    {fld_a500_r1_display, 0, .value.num = A500_r1_display, "ALFR1", "R1", a500},
+    {fld_a500_r2_display, 0, .value.num = A500_r2_display, "ALFR2", "R2", a500},
+    {fld_a500_r3_display, 0, .value.num = A500_r3_display, "ALFR3", "R3", a500},
+    {fld_a500_r4_display, 0, .value.num = A500_r4_display, "ALFR4", "R4", a500},
+    {fld_a500_r5_display, 0, .value.num = A500_r5_display, "ALFR5", "R5", a500},
 
-    {47, 0, .value.num = S2_r1_display, "2sR1", "R1", s2},
-    {48, 0, .value.num = S2_r2_display, "2sR2", "R2", s2},
+    {fld_s2_r1_display, 0, .value.num = S2_r1_display, "2sR1", "R1", s2},
+    {fld_s2_r2_display, 0, .value.num = S2_r2_display, "2sR2", "R2", s2},
 
-    {49, 0, .value.num = S1800_r1_display, ".5hR1", "R1", s1800},
-    {50, 0, .value.num = S1800_r2_display, ".5hR2", "R2", s1800},
+    {fld_s1800_r1_display, 0, .value.num = S1800_r1_display, ".5hR1", "R1", s1800},
+    {fld_s1800_r2_display, 0, .value.num = S1800_r2_display, ".5hR2", "R2", s1800},
 
-    {51, 0, .value.num = M250_r1_display, "250R1", "R1", m250},
-    {52, 0, .value.num = M250_r2_display, "250R2", "R2", m250},
+    {fld_m250_r1_display, 0, .value.num = M250_r1_display, "250R1", "R1", m250},
+    {fld_m250_r2_display, 0, .value.num = M250_r2_display, "250R2", "R2", m250},
 
-    {53, 0, .value.num = M500_r1_display, "500R1", "R1", m500},
-    {54, 0, .value.num = M500_r2_display, "500R2", "R2", m500},
+    {fld_m500_r1_display, 0, .value.num = M500_r1_display, "500R1", "R1", m500},
+    {fld_m500_r2_display, 0, .value.num = M500_r2_display, "500R2", "R2", m500},
 
-    {55, 0, .value.num = M1852_r1_display, "NMR1", "R1", m1852},
-    {56, 0, .value.num = M1852_r2_display, "NMR2", "R2", m1852},
+    {fld_m1852_r1_display, 0, .value.num = M1852_r1_display, "NMR1", "R1", m1852},
+    {fld_m1852_r2_display, 0, .value.num = M1852_r2_display, "NMR2", "R2", m1852},
     
-    {57, 0, .value.num = S10_s_max, "10max", "M", s10}, // current max speed during run
+    {fld_s10_s_max, 0, .value.num = S10_s_max, "10max", "M", s10}, // current max speed during run
 
-    {58, 1, .value.timestr = total_time_hms, "TTime", "TT", ttime},
-    {59, 0, .value.num = total_time_sec, "TTime", "TT", ttime},
-    {60, 0, .value.num = run_time_sec, "RTime", "RT", ttime},
+    {fld_total_time_hms, 1, .value.timestr = total_time_hms, "TTime", "TT", ttime},
+    {fld_total_time_sec, 0, .value.num = total_time_sec, "TTime", "TT", ttime},
+    {fld_run_time_sec, 0, .value.num = run_time_sec, "RTime", "RT", ttime},
 
-    {61, 0, .value.num = A500_a_max, "ALFmax", "M", a500}, // current max speed during run
-    {62, 0, .value.num = M1852_m_max, "NMmax", "M", m1852}, // current max speed during run
-    {63, 0, .value.num = M500_m_max, "500max", "M", m500}, // current max speed during run
-    {64, 0, .value.num = S1800_s_max, ".5hmax", "M", s1800}, // current max speed during run
-    {65, 0, .value.num = S3600_s_max, "1hmax", "M", s3600}, // current max speed during run
+    {fld_a500_a_max, 0, .value.num = A500_a_max, "ALFmax", "M", a500}, // current max speed during run
+    {fld_m1852_m_max, 0, .value.num = M1852_m_max, "NMmax", "M", m1852}, // current max speed during run
+    {fld_m500_m_max, 0, .value.num = M500_m_max, "500max", "M", m500}, // current max speed during run
+    {fld_s1800_s_max, 0, .value.num = S1800_s_max, ".5hmax", "M", s1800}, // current max speed during run
+    {fld_s3600_s_max, 0, .value.num = S3600_s_max, "1hmax", "M", s3600}, // current max speed during run
 };
 
 const stat_screen_t sc_screens[] = {
