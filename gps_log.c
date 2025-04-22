@@ -373,7 +373,7 @@ void gps_task_start() {
                 &gps_task_handle, 1);      /* Task handle. */
 #if defined(GPS_TIMER_STATS)
         if(gps_periodic_timer)
-            esp_timer_start_periodic(gps_periodic_timer, 1000000);
+            esp_timer_start_periodic(gps_periodic_timer, SEC_TO_US(1));
 #endif
     }
 }
