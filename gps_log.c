@@ -126,7 +126,7 @@ static int8_t set_time(float time_offset) {
         ESP_LOGW(TAG, "GPS Reported year not plausible (<2023)!");
         return 0;
     }
-    ESP_ERROR_CHECK(esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_TIME_SET, NULL,0, portMAX_DELAY));
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_TIME_SET, NULL,0, portMAX_DELAY);
     gps->next_time_sync = millis + (60000); // 1 minute
     gps->time_set = 1;
     return 1;
@@ -373,7 +373,7 @@ void gps_task_start() {
                 &gps_task_handle, 1);      /* Task handle. */
 #if defined(GPS_TIMER_STATS)
         if(gps_periodic_timer)
-            ESP_ERROR_CHECK(esp_timer_start_periodic(gps_periodic_timer, 1000000));
+            esp_timer_start_periodic(gps_periodic_timer, 1000000);
 #endif
     }
 }
@@ -383,7 +383,7 @@ void gps_task_stop() {
     if(gps_task_is_running) {
 #if defined(GPS_TIMER_STATS)
         if(gps_periodic_timer)
-            ESP_ERROR_CHECK(esp_timer_stop(gps_periodic_timer));
+            esp_timer_stop(gps_periodic_timer);
 #endif
         gps_task_is_running = false;
         uint32_t now = get_millis();
@@ -404,14 +404,16 @@ void gps_init(gps_context_t * _gps) {
             .name = "gps_periodic",
             .arg = _gps->ubx_device,
         };
-        ESP_ERROR_CHECK(esp_timer_create(&gps_periodic_timer_args, &gps_periodic_timer));
+        if(esp_timer_create(&gps_periodic_timer_args, &gps_periodic_timer)){
+            ESP_LOGE(TAG, "[%s] Failed to create periodic timer", __func__);
+        }
 #endif
 }
 
 void gps_deinit(void) {
     ILOG(TAG, "[%s]", __func__);
 #if defined(GPS_TIMER_STATS)
-    ESP_ERROR_CHECK(esp_timer_delete(gps_periodic_timer));
+    esp_timer_delete(gps_periodic_timer);
 #endif
 }
 

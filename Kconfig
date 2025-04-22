@@ -63,9 +63,16 @@ menu "Logger GPS Log Module Configuration"
         default 4 if GPS_LOG_LEVEL_USER
         default 5 if GPS_LOG_LEVEL_NONE
     endif
-    config GPS_LOG_USE_CJSON
-        bool "Enable CJSON for GPS Log Module"
-        default n
-        help
-            Enable CJSON for GPS Log Module
+    choice
+        bool "Json library"
+        default GPS_LOG_USE_CCAN_JSON
+        config GPS_LOG_USE_CJSON
+            bool "Enable CJSON for GPS Log Module"
+            help
+                Enable CJSON for GPS Log Module
+        config GPS_LOG_USE_CCAN_JSON
+            bool "Enable CCAN Json for GPS Log Module"
+            help
+                Enable CCAN Json for GPS Log Module       
+    endchoice
 endmenu

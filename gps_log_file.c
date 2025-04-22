@@ -223,7 +223,7 @@ void open_files(gps_context_t *context) {
 #endif
         }
     }
-    ESP_ERROR_CHECK(esp_event_post(GPS_LOG_EVENT, open_failed ? GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED : GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY));
+    esp_event_post(GPS_LOG_EVENT, open_failed ? GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED : GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY);
     context->files_opened = 1;
 }
 
@@ -242,7 +242,7 @@ void close_files(gps_context_t *context) {
         }
     }
     context->files_opened = 0;
-    ESP_ERROR_CHECK(esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_CLOSED, NULL,0, portMAX_DELAY));
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_CLOSED, NULL,0, portMAX_DELAY);
 }
 
 static int load_balance = 0;

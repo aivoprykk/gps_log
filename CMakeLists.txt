@@ -5,11 +5,6 @@ idf_component_register(
     INCLUDE_DIRS ${INCLUDE}
     PRIV_REQUIRES logger_common strutil
 )
-if(CONFIG_GPS_LOG_USE_CJSON)
-    target_link_libraries(${COMPONENT_LIB} PRIVATE idf::json)
-else()
-    target_link_libraries(${COMPONENT_LIB} PRIVATE idf::ccan_json)
-endif()
 if(CONFIG_UBLOX_ENABLED)
     target_link_libraries(${COMPONENT_LIB} PRIVATE idf::logger_ubx)
 endif()
