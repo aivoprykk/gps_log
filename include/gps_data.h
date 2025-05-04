@@ -284,7 +284,7 @@ typedef struct gps_context_s {
         
     bool time_set;
     bool signal_ok;
-    uint16_t first_fix;
+    uint32_t first_fix;
     uint32_t next_time_sync;
     // float calibration_speed;
     bool ubx_restart_requested;

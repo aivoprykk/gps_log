@@ -93,7 +93,7 @@ typedef struct gps_p_context_s {
 gps_p_context_t lctx = GPS_P_CONTEXT_INIT;
 
 #define CONFIG_GPS_LOG_ENABLE_DEBUG 0
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if (C_LOG_LEVEL < 1)
 esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
     printf("gps_p_context:{\n");
     printf("dynamic_state: %d\n", me->dynamic_state);
@@ -198,7 +198,7 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
     ctx->Gps_fields_OK = 0;
 }
 
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if (C_LOG_LEVEL < 1)
 esp_err_t gps_data_printf(const struct gps_data_s *me) {
     printf("gps_data:{ ");
     printf("id: %ld(%ld), ", lctx.index_GPS, lctx.index_GPS % BUFFER_SIZE);
@@ -211,7 +211,7 @@ esp_err_t gps_data_printf(const struct gps_data_s *me) {
 }
 #endif
 
-#if (CONFIG_GPS_LOG_LEVEL < 3) 
+#if (C_LOG_LEVEL < 3)
 #include "strbf.h"
 void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
     ILOG(TAG, "[%s] %hhu", __func__, changed);
@@ -283,7 +283,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
             if(lctx.dynamic_state==0) changed=1;
         }
         if(changed) {
-            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, &lctx.dynamic_state, sizeof(uint8_t*), portMAX_DELAY);
+            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, 0, 0, portMAX_DELAY);
         }
     }
 
@@ -311,7 +311,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
         lctx.sec_gSpeed = 0; // reset sec_gSpeed for calc next second average speed
     }
     xSemaphoreGive(lctx.xMutex);
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)
+#if (C_LOG_LEVEL < 1)
     if (lctx.index_GPS % sample_rate == 0 && gSpeed > STANDSTILL_DETECTION_MAX) {
         gps_data_printf(me);
         gps_p_context_printf(&lctx);
@@ -349,7 +349,7 @@ struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
     me->index_SAT_info = 0;
     return me;
 }
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SAT)
+#if (C_LOG_LEVEL < 1)  && defined(GPS_TRACE_MSG_SAT)
 esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
     printf("GPS_SAT_info:{ ");
     printf("mean_cno: %hu, ", me->mean_cno);
@@ -412,7 +412,7 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
             me->sat_info.Mean_numSV = me->nr_sats;
         }
         me->index_SAT_info++;
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE) && defined(GPS_TRACE_MSG_SAT)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_SAT)
         gps_sat_info_printf(me);
 #endif
     }
@@ -507,7 +507,7 @@ struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint1
     return me;
 }
 
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SPEED)
+#if (C_LOG_LEVEL < 1)  && defined(GPS_TRACE_MSG_SPEED)
 // esp_err_t gps_speed_serialize_json(struct gps_speed_by_dist_s *me, cJSON * root) {
 //     cJSON *gps_speed = cJSON_CreateObject();
 //     if (gps_speed == NULL) {
@@ -731,7 +731,7 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
         me->record = 0;
     }
     me->old_run = actual_run;
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_SPEED)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_SPEED)
     gps_speed_printf(me);
 #endif
     return me->m_max_speed;
@@ -745,7 +745,7 @@ struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16
     me->time_window = tijdvenster;
     return me;
 }
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_TIME)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_TIME)
 esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
     printf("GPS_time:{\n");
     printf("time_window: %hu\n", me->time_window);
@@ -923,7 +923,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
         //return me->s_max_speed;
     }
     //}
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_TIME)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_TIME)
     gps_time_printf(me);
 #endif
     return me->s_max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
@@ -936,7 +936,7 @@ struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_r
     return me;
 }
     
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_ALPHA)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_ALPHA)
 esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
     printf("alfa_speed:{\n");
     printf("alfa_circle_square: %.03f\n", me->alfa_circle_square);
@@ -1041,7 +1041,7 @@ float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, str
     }
     else
         me->display_max_speed = me->avg_speed[9];
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE)  && defined(GPS_TRACE_MSG_ALPHA)
+#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_ALPHA)
     alfa_speed_printf(me);
 #endif
     return me->alfa_speed_max;

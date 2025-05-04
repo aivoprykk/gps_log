@@ -1,3 +1,4 @@
+#include "gps_log.h"
 #include "log_private.h"
 #include "gps_data.h"
 #include "gps_log_file.h"
@@ -11,7 +12,7 @@
 
 static const char *TAG = "gps_log";
 
-#if defined(CONFIG_GPS_LOG_LEVEL_TRACE) && defined(SHOW_SAVED_FRAMES)
+#if (C_LOG_LEVEL < 1) && defined(SHOW_SAVED_FRAMES)
 #define GPS_TIMER_STATS 1
 #endif
 
@@ -83,6 +84,9 @@ const char * gps_log_event_strings(int id) {
 #endif
 
 static int8_t set_time(float time_offset) {
+#if (C_LOG_LEVEL < 1)
+    DLOG(TAG, "[%s]\n", __FUNCTION__);
+#endif
     struct ubx_config_s *ubx_dev = gps->ubx_device;
     nav_pvt_t *pvt = &ubx_dev->ubx_msg.navPvt;
     if (!pvt->numSV || pvt->year < 2023) { // no sats or no valid time
@@ -92,6 +96,9 @@ static int8_t set_time(float time_offset) {
     if (gps->time_set && millis < gps->next_time_sync) { // time already set and not time to sync
         return 0;
     }
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s] time_offset: %f", __FUNCTION__, time_offset);
+#endif
     //ESP_LOGI(TAG, "[%s] sats: %" PRIu8, __FUNCTION__, pvt->numSV);
     struct tm my_time={0};      // time elements structure
     time_t unix_timestamp = 0;  // a timestamp in seconds
@@ -114,24 +121,41 @@ static int8_t set_time(float time_offset) {
     my_time.tm_year = pvt->year - 1900;  // mktime needs years since 1900, so deduct 1900
     unix_timestamp = mktime(&my_time);                // mktime returns local time, so TZ is important !!!
     int64_t utc_ms = unix_timestamp * 1000LL + (pvt->nano + 500000) / 1000000LL;
-    ESP_LOGW(TAG, "GPS raw time: %d-%02d-%02d %02d:%02d:%02d %" PRId64, pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, utc_ms);
+#if (C_LOG_LEVEL < 4)
+    WLOG(TAG, "GPS raw time: %d-%02d-%02d %02d:%02d:%02d %" PRId64, pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, utc_ms);
+#endif
     struct timeval tv = {
         .tv_sec = (time_t)(unix_timestamp + (time_offset * 3600)),
         .tv_usec = 0};  // clean utc time !!
     settimeofday(&tv, NULL);
     struct tm tms;
     localtime_r(&unix_timestamp, &tms);
-    ESP_LOGW(TAG, "GPS time set: %d-%02d-%02d %02d:%02d:%02d", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec);
+#if (C_LOG_LEVEL < 4)
+    WLOG(TAG, "GPS time set: %d-%02d-%02d %02d:%02d:%02d", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec);
     if (tms.tm_year < 123) {
-        ESP_LOGW(TAG, "GPS Reported year not plausible (<2023)!");
+        WLOG(TAG, "[%s] GPS Reported year not plausible (<2023)!", __FUNCTION__);
         return 0;
     }
+#endif
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_TIME_SET, NULL,0, portMAX_DELAY);
-    gps->next_time_sync = millis + (60000); // 1 minute
+    gps->next_time_sync = millis + SEC_TO_MS(60); // 1 minute
     gps->time_set = 1;
     return 1;
 }
 
+uint8_t gps_read_msg_timeout() {
+    if(!gps || !gps->ubx_device) return 0;
+    return  (gps->time_set && (gps->ubx_device->ubx_msg.navPvt.iTOW - gps->old_nav_pvt_itow) > (gps->time_out_gps_msg * 5));
+}
+
+
+uint8_t gps_has_version_set() {
+    if(gps && gps->ubx_device) {
+        if(gps->ubx_device->ready && gps->ubx_device->ubx_msg.mon_ver.hwVersion[0]) return 2;
+        if(gps->ubx_device->ready && gps->ubx_device->rtc_conf->hw_type) return 1;
+    }
+    return 0;
+}
 
 static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
     struct ubx_config_s *ubx_dev = gps->ubx_device;
@@ -146,10 +170,10 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                 #if defined(GPS_TIMER_STATS)
                     local_nav_dop_count++;
                 #endif
-                    if ((nav_pvt->numSV >= MIN_numSV_FIRST_FIX) && ((nav_pvt->sAcc / 1000.0f) < MAX_Sacc_FIRST_FIX) && (nav_pvt->valid >= 7) && (gps->signal_ok == false)) {
+                    if ((nav_pvt->numSV >= MIN_numSV_FIRST_FIX) && (MS_TO_SEC(nav_pvt->sAcc) < MAX_Sacc_FIRST_FIX) && (nav_pvt->valid >= 7) && (gps->signal_ok == false)) {
                         gps->signal_ok = true;
-                        gps->first_fix = (now - ubx_dev->ready_time) / 1000;
-                        ESP_LOGI(TAG, "[%s] First GPS Fix after %"PRIu16" sec.", __FUNCTION__, gps->first_fix);
+                        gps->first_fix = (now - ubx_dev->ready_time);
+                        WLOG(TAG, "[%s] First GPS Fix after %.01f sec.", __FUNCTION__, MS_TO_SEC(gps->first_fix));
                         esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FIRST_FIX, NULL, 0, portMAX_DELAY);
                         // if(!m_context_rtc.RTC_screen_auto_refresh) {
                         //     lcd_ui_task_resume_for_times(1, -1, -1, true);
@@ -170,7 +194,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                                 open_files(gps);  // only start logging if GPS signal is OK
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY);
                             } else {
-                                ESP_LOGE(TAG, "[%s] gps time not set!", __FUNCTION__);
+                                ELOG(TAG, "[%s] gps time not set!", __FUNCTION__);
                             }
                         }  // Only speed > 0 if speed is greater than 1m/s + sACC < 1 + sat < 5 + speed > 35 m/s !!!
                     }
@@ -190,12 +214,12 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                             last_flush_time = now;
                         }
                         // init run if speed is 0 or sAcc > 1 or speed > 35 m/s
-                        if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || ((nav_pvt->sAcc / 1000.0f) > MAX_Sacc_GPS_SPEED_OK) || (nav_pvt->gSpeed / 1000.0f > MAX_GPS_SPEED_OK)) {
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 3)
+                        if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK)) {
+#if (C_LOG_LEVEL < 2)
                             const char * c = " GPS run cancelled ";
                             if(nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s %hhu <= %d MIN_numSV_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->numSV, (int)MIN_numSV_GPS_SPEED_OK);
-                            if((nav_pvt->sAcc / 1000.0f) > MAX_Sacc_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%lu > %d MAX_Sacc_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->sAcc/1000, (int)MAX_Sacc_GPS_SPEED_OK);
-                            if(nav_pvt->gSpeed / 1000.0f > MAX_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%ld > %d MAX_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->gSpeed, (int)MAX_GPS_SPEED_OK);
+                            if(MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%.01f > %d MAX_Sacc_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->sAcc), (int)MAX_Sacc_GPS_SPEED_OK);
+                            if(MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%.01f > %d MAX_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->gSpeed), (int)MAX_GPS_SPEED_OK);
 #endif
                             gps->gps_speed = 0;
                             gps_data->run_start_time = 0;
@@ -204,7 +228,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         if (gps->gps_speed > STANDSTILL_DETECTION_MAX) { // log only when speed is above 1 m/s == 3.6 km/h
                             log_to_file(gps);  // here it is also printed to serial !!
                             if(!gps_is_moving) {
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 1)
+#if (C_LOG_LEVEL < 2)
                                     ILOG(TAG, "[%s] GPS moving detected (%ld ms), run start event sent.\n", __FUNCTION__, gps->gps_speed);
 #endif
                                 gps_is_moving = true;
@@ -216,7 +240,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         }
                         else {
                             if(gps_is_moving) {
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 1)
+#if (C_LOG_LEVEL < 2)
                                     ILOG(TAG,"[%s] GPS stop run detected (%ld ms), stop event sent.\n", __FUNCTION__, gps->gps_speed);
 #endif
                                gps_is_moving = false;
@@ -233,27 +257,27 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                             // }
                             // }
                         }
-                        ret = push_gps_data(gps, gps_data, nav_pvt->lat / 10000000.0f, nav_pvt->lon / 10000000.0f, gps->gps_speed);
+                        ret = push_gps_data(gps, gps_data, FROM_10M(nav_pvt->lat), FROM_10M(nav_pvt->lon), gps->gps_speed);
                         if(ret){
                         #if defined(GPS_TIMER_STATS)
                             ++push_failed_count;
                         #endif
-                        #if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL < 2)
                             ESP_LOGE(TAG, "[%s] push msg failed, timer: %lu, msg_count: %lu ...\n", __func__, now, ubxMessage->count_nav_pvt);
-                        #endif
+#endif
                             goto end;
                         }
                         #if defined(GPS_TIMER_STATS)
                         else
                             ++push_ok_count;
                         #endif
-                        gps->run_count = new_run_detection(gps, nav_pvt->heading / 100000.0f, gps->S2.avg_s);
-                        gps->alfa_window = alfa_indicator(gps, nav_pvt->heading / 100000.0f);
+                        gps->run_count = new_run_detection(gps, FROM_100K(nav_pvt->heading), gps->S2.avg_s);
+                        gps->alfa_window = alfa_indicator(gps, FROM_100K(nav_pvt->heading));
                         // new run detected, reset run distance
                         if (gps->run_count != gps->old_run_count) {
                             gps_data->run_distance = 0;
-                            if (gps->gps_speed / 1000.0f > STANDSTILL_DETECTION_MAX) {
-#if (CONFIG_LOGGER_COMMON_LOG_LEVEL < 1)
+                            if (MM_TO_M(gps->gps_speed) > STANDSTILL_DETECTION_MAX) {
+#if (C_LOG_LEVEL < 2)
                             ILOG(TAG, "[%s] GPS new run detected (%ld ms).\n", __FUNCTION__, gps->gps_speed);
 #endif
                                 gps_data->run_start_time = now;
@@ -298,7 +322,9 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
 }
 
 static void gpsTask(void *parameter) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     uint32_t now = 0, loops = 0, mt = 0;
     ubx_config_t *ubx_dev = gps->ubx_device;
     ubx_msg_byte_ctx_t ubx_packet = UBX_MSG_BYTE_CTX_DEFAULT(ubx_dev->ubx_msg);
@@ -315,7 +341,7 @@ static void gpsTask(void *parameter) {
 //         }
 // #endif
         now = get_millis();
-        if (!ubx_dev->ready || !ubxMessage->mon_ver.hwVersion[0] || gps->ubx_restart_requested) {
+        if (!gps_has_version_set() || gps->ubx_restart_requested) {
             mt = now - (ubx_dev->ready ? ubx_dev->ready_time : 5000);
             // ILOG(TAG, "[%s] Gps init ... (%lums)", __FUNCTION__, mt);
             if (mt > 10000) { // 5 seconds
@@ -327,7 +353,7 @@ static void gpsTask(void *parameter) {
                 ubx_setup(ubx_dev);
             }
             if(ubx_fail_count>50) {
-                if(!ubxMessage->mon_ver.hwVersion[0]) { // only when no hwVersion is received
+                if(!gps_has_version_set()) { // only when no hwVersion is received
                     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_REQUEST_RESTART, NULL, 0, portMAX_DELAY);
                     //m_context.request_restart = true;
                     ILOG(TAG, "[%s] Gps init failed, restart requested.", __FUNCTION__);
@@ -343,7 +369,7 @@ static void gpsTask(void *parameter) {
             ubx_msg_do(&ubx_packet);
             ubx_fail_count = 0;
         } else {
-            if((ubx_dev->ready && ubxMessage->mon_ver.hwVersion[0] && (ret == ESP_ERR_TIMEOUT && ubx_fail_count>3)) || ubx_fail_count>20) {
+            if((gps_has_version_set() && (ret == ESP_ERR_TIMEOUT && ubx_fail_count>3)) || ubx_fail_count>20) {
                 if(ubx_dev->ready) {
                     ubx_dev->ready = false;
                     ubxMessage->mon_ver.hwVersion[0] = 0;
@@ -362,7 +388,9 @@ static void gpsTask(void *parameter) {
 }
 
 void gps_task_start() {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     if(!gps_task_is_running) {
         gps_task_is_running = true;
         xTaskCreatePinnedToCore(gpsTask,   /* Task function. */
@@ -379,20 +407,25 @@ void gps_task_start() {
 }
 
 void gps_task_stop() {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     if(gps_task_is_running) {
 #if defined(GPS_TIMER_STATS)
         if(gps_periodic_timer)
             esp_timer_stop(gps_periodic_timer);
 #endif
         gps_task_is_running = false;
-        uint32_t now = get_millis();
-        while(gps_task_handle && (get_millis() - now) < 5000) delay_ms(10);
+        uint32_t now = get_millis() + SEC_TO_MS(5);
+        while(gps_task_handle && (get_millis() < now)) delay_ms(10);
         if(gps_task_handle) {
             vTaskDelete(gps_task_handle);
             gps_task_handle = 0;
         }
     }
+#if (C_LOG_LEVEL < 2)
+    ILOG(TAG, "[%s] done.", __func__);
+#endif
 }
 
 void gps_init(gps_context_t * _gps) {
@@ -411,20 +444,25 @@ void gps_init(gps_context_t * _gps) {
 }
 
 void gps_deinit(void) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
 #if defined(GPS_TIMER_STATS)
     esp_timer_delete(gps_periodic_timer);
 #endif
 }
 
 int gps_shut_down() {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     if(!gps) return 0;
     struct ubx_config_s *ubx_dev = gps->ubx_device;
-    if ((!ubx_dev || !ubx_dev->uart_setup_ok)) return 0;
+    if (!ubx_dev) return 0;
     int ret = 0;
     if(!ubx_dev)
         goto end;
+    ubx_dev->shutdown_requested = 1;
     if (ubx_dev->ready) {
         gps->signal_ok = false;
         gps->GPS_delay = 0;
