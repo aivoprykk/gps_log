@@ -259,8 +259,7 @@ typedef struct gps_context_s {
     uint8_t GPS_delay;
 
     uint32_t time_out_gps_msg;
-    uint32_t interval_gps_msg;
-
+    
     //uint32_t last_gps_msg;
     uint32_t old_nav_pvt_itow;
     
@@ -288,6 +287,8 @@ typedef struct gps_context_s {
     uint32_t next_time_sync;
     // float calibration_speed;
     bool ubx_restart_requested;
+    bool gps_is_moving;
+    int output_rate_swp;
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG { \
@@ -311,7 +312,6 @@ typedef struct gps_context_s {
     .old_run_count = 0, \
     .GPS_delay = 0, \
     .time_out_gps_msg = 0, \
-    .interval_gps_msg = 0, \
     .old_nav_pvt_itow = 0, \
     .next_gpy_full_frame = 0, \
     .gps_speed = 0, \
@@ -330,7 +330,9 @@ typedef struct gps_context_s {
     .signal_ok = false, \
     .first_fix = 0, \
     .next_time_sync = 0, \
-    .ubx_restart_requested = false \
+    .ubx_restart_requested = false, \
+    .gps_is_moving = false, \
+    .output_rate_swp = 0, \
 }
 
 /** 

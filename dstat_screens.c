@@ -195,13 +195,13 @@ static float A500_r5_display(void) {
     return get_spd((float)gps->A500.avg_speed[5]);
 }
 static float distance(void) {
-    return (float)gps->Ublox.total_distance / 1000000;
+    return (float)MM_TO_KM(gps->Ublox.total_distance);
 }
 static float run_time_sec(void) {
-    return (float)(get_millis() - gps->Ublox.run_start_time) / 1000;
+    return (float) MS_TO_SEC(get_millis() - gps->Ublox.run_start_time);
 }
 static float total_time_sec(void) {
-    return (float)(get_millis() - gps->start_logging_millis) / 1000;
+    return (float)MS_TO_SEC(get_millis() - gps->start_logging_millis);
 }
 static size_t total_time_hms(char *p1) {
     return sec_to_hms_str(total_time_sec(), p1);

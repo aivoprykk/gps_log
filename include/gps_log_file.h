@@ -76,6 +76,7 @@ void open_files(struct gps_context_s * context);
 void close_files(struct gps_context_s *context);
 void flush_files(const struct gps_context_s *context);
 void log_to_file(struct gps_context_s * context); 
+bool log_files_opened(struct gps_context_s * context);
 
 void model_info(const struct gps_context_s * context, int model);
 void session_info(const struct gps_context_s *context, struct gps_data_s * G);

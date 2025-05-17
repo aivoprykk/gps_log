@@ -151,7 +151,9 @@ int32_t gps_last_sec_speed_smoothed(uint8_t window_size) {
 }
 
 void init_gps_context_fields(gps_context_t *ctx) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(ctx);
     init_gps_data(&ctx->Ublox);  // create an object storing GPS_data !
     init_gps_sat_info(&ctx->Ublox_Sat);  // create an object storing GPS_SAT info !
@@ -169,8 +171,9 @@ void init_gps_context_fields(gps_context_t *ctx) {
     init_alfa_speed(&ctx->A250, 250);
     init_alfa_speed(&ctx->A500, 500);
     init_alfa_speed(&ctx->a500, 500);
-    if (ctx->ubx_device == NULL)
+    if (ctx->ubx_device == NULL){
         ctx->ubx_device = ubx_config_new();
+    }
     if (ctx->log_config == NULL)
         ctx->log_config = &log_config;
     if(lctx.xMutex == NULL)
@@ -180,7 +183,9 @@ void init_gps_context_fields(gps_context_t *ctx) {
 }
 
 void deinit_gps_context_fields(gps_context_t *ctx) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(ctx);
     if (ctx->ubx_device != NULL){
         ubx_config_delete(ctx->ubx_device);
@@ -214,14 +219,16 @@ esp_err_t gps_data_printf(const struct gps_data_s *me) {
 #if (C_LOG_LEVEL < 3)
 #include "strbf.h"
 void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] %hhu", __func__, changed);
+#endif
     ubx_config_t *ubx = context->ubx_device;
     const char * bstr = " nav_mode changed ";
     if(changed) {
         strbf_t strbf;
         char buf[96] = {0};
         strbf_inits(&strbf, buf, sizeof(buf));
-        strbf_putul(&strbf, ((get_millis() - context->start_logging_millis) / 1000));
+        strbf_putul(&strbf, (MS_TO_SEC(get_millis() - context->start_logging_millis)));
         strbf_puts(&strbf, bstr);
         strbf_putul(&strbf, ubx->rtc_conf->nav_mode);
         if(lctx.dynamic_state==0) {
@@ -239,6 +246,8 @@ void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
         WRITETXT(strbf.start, strbf.cur-strbf.start);
     }
 }
+#else 
+void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {}
 #endif
 
 // This function will always put 3 variables from the GPS into a global buffer:
@@ -252,17 +261,17 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     ubx_config_t *ubx = context->ubx_device;
     ubx_msg_t * ubxMessage = &ubx->ubx_msg;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
-    if(ubx->rtc_conf->nav_mode_auto) {
-        uint8_t changed = 0;
+    // if(ubx->rtc_conf->nav_mode_auto) {
+        bool changed = 0;
         if(lctx.dynamic_state == 0) {
-            /// switch to dynamic_model "portable", as "pedestrian" only works with speed < 30 m/s (108kmh)
+            /// switch to dynamic_model "portable" as "pedestrian" only works with speed < 30 m/s (108kmh)
             /// and "sea" only works with speed < 25 m/s (90kmh)
-            if (((context->S2.avg_s > 28000 && ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
-                || (context->S2.avg_s > 23500 && ubx->rtc_conf->nav_mode == UBX_MODE_SEA))) { /// change over 23.5ms 85kmh
+            if (((context->S2.avg_s > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
+                || (context->S2.avg_s > 23750 && ubx->rtc_conf->nav_mode == UBX_MODE_SEA))) { /// change over 24ms 85kmh
                 lctx.dynamic_state = 1;
                 ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
             }
-            else if (context->S2.avg_s < 29000 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
+            else if (context->S2.avg_s < 28500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
                 /// switch to dynamic_model "pedestrian" below 30ms as "portable" is less accurate
                 lctx.dynamic_state = 1;
                 ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
@@ -271,11 +280,11 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
         }
         else if(lctx.dynamic_state == 1) {
             /// switch back to "pedestrian" below 27ms as "pedestrian" is more accurate
-            if(context->S2.avg_s < 24000 && (ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
+            if(context->S2.avg_s < 27500 && (ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
                 lctx.dynamic_state = 0;
                 ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
             }
-            else if (context->S2.avg_s > 28000 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
+            else if (context->S2.avg_s > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change above 28ms 100kmh
                 lctx.dynamic_state = 0;
                 ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
 
@@ -285,7 +294,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
         if(changed) {
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, 0, 0, portMAX_DELAY);
         }
-    }
+    // }
 
     if(xSemaphoreTake(lctx.xMutex, 0) != pdTRUE)
         return ESP_FAIL;
@@ -323,7 +332,9 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
 
 // constructor for GPS_data
 struct gps_data_s *init_gps_data(struct gps_data_s *me) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     memset(me, 0, sizeof(struct gps_data_s));
     lctx.index_GPS = 0;
     return me;
@@ -344,7 +355,9 @@ struct gps_data_s *init_gps_data(struct gps_data_s *me) {
 
 // constructor for SAT_info
 struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     memset(me, 0, sizeof(struct GPS_SAT_info));
     me->index_SAT_info = 0;
     return me;
@@ -501,7 +514,9 @@ void sort_run_alfa(double a[], int32_t dis[], uint32_t message[], uint8_t hour[]
 /*Instantie om gemiddelde snelheid over een bepaalde afstand te bepalen, bij een
  * nieuwe run opslaan hoogste snelheid van de vorige run*****************/
 struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint16_t afstand) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     memset(me, 0, sizeof(struct gps_speed_by_dist_s));
     me->m_set_distance = afstand;
     return me;
@@ -664,7 +679,7 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
     ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
     uint32_t actual_run = context->run_count;
-    me->m_Set_Distance = me->m_set_distance * 1000 * sample_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
+    me->m_Set_Distance = M_TO_MM(me->m_set_distance) * sample_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
     me->m_distance = me->m_distance + lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // the resolution of the distance is 0.1 mm
                                                                                   // the max int32  is 2,147,483,647 mm eq 214,748.3647 meters eq ~214 kilometers !!
     if ((lctx.index_GPS - me->m_index) >= BUFFER_SIZE) {  // controle buffer overflow
@@ -740,7 +755,9 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
 /*Instantie om gemiddelde snelheid over een bepaald tijdvenster te
  * bepalen*******************************************/
 struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16_t tijdvenster) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     memset(me, 0, sizeof(struct gps_speed_by_time_s));
     me->time_window = tijdvenster;
     return me;
@@ -843,10 +860,10 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             if (me->s_max_speed > me->avg_speed[5]) {
                 me->avg_5runs = 0;
                 for (i = 6; i < 10; i++) {
-                    me->avg_5runs = me->avg_5runs + me->avg_speed[i];
+                    me->avg_5runs += me->avg_speed[i];
                 }
-                me->avg_5runs = me->avg_5runs + me->avg_speed[0];
-                me->avg_5runs = me->avg_5runs / 5;
+                me->avg_5runs += me->avg_speed[0];
+                me->avg_5runs /= 5;
                 me->display_speed[5] = me->s_max_speed;  // current run is faster than run[5] !!
                 for (i = 9; i > 5; i--) {  // copy other runs
                     me->display_speed[i] = me->avg_speed[i];
@@ -874,9 +891,9 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             me->avg_5runs = 0;
             me->record = 0;
             for (i = 5; i < 10; i++) {
-                me->avg_5runs = me->avg_5runs + me->avg_speed[i];
+                me->avg_5runs += me->avg_speed[i];
             }
-            me->avg_5runs = me->avg_5runs / 5;
+            me->avg_5runs /= 5;
         }
         if ((actual_run != me->reset_display_last_run) && (me->avg_s > 3000)) {
             me->reset_display_last_run = actual_run;
@@ -915,9 +932,9 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             me->s_max_speed = 0;
             me->avg_5runs = 0;
             for (i = 5; i < 10; i++) {
-                me->avg_5runs = me->avg_5runs + me->avg_speed[i];
+                me->avg_5runs += me->avg_speed[i];
             }
-            me->avg_5runs = me->avg_5runs / 5;
+            me->avg_5runs /= 5;
         }
         me->old_run = actual_run;
         //return me->s_max_speed;
@@ -930,7 +947,9 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
 }
 
 struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_radius) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     memset(me, 0, sizeof(struct gps_speed_alfa_s));
     me->alfa_circle_square = alfa_radius * alfa_radius;  // to avoid sqrt calculation !!
     return me;

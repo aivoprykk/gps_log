@@ -40,10 +40,9 @@ extern const size_t gps_user_cfg_item_count;
 #define CFG_GPS_USER_OTHER_ITEMS(l, n) \
 l(log_ubx_nav_sat,(CFG_GPS_ITEM_BASE + n)) \
  l(dynamic_model,(CFG_GPS_ITEM_BASE + n + 1)) \
- l(dynamic_model_auto,(CFG_GPS_ITEM_BASE + n + 2)) \
- l(file_date_time,(CFG_GPS_ITEM_BASE + n + 3)) \
- l(ubx_file,(CFG_GPS_ITEM_BASE + n + 4))
-#define CFG_GPS_USER_OTHER_ITEMS_NUM 5
+ l(file_date_time,(CFG_GPS_ITEM_BASE + n + 2)) \
+ l(ubx_file,(CFG_GPS_ITEM_BASE + n + 3))
+#define CFG_GPS_USER_OTHER_ITEMS_NUM 4
 
 #define CFG_GPS_USER_CFG_ITEM_LIST(l) \
  CFG_GPS_USER_GNSS_ITEMS(l, 0) \
@@ -79,6 +78,7 @@ typedef struct gps_user_cfg_s {
 }
 
 extern const char * const speed_units[];
+extern const char * const dynamic_models[];
 extern struct gps_user_cfg_s c_gps_cfg;
 extern const size_t gps_user_cfg_item_count;
 struct strbf_s;
@@ -86,7 +86,7 @@ struct strbf_s;
 void gps_user_cfg_init(void);
 void gps_user_cfg_deinit(void);
 struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item);
-int set_gps_cfg_item(int num);
+int set_gps_cfg_item(int num, bool skip_done_msg);
 uint8_t gps_cfg_get_pos(const char *str);
 uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force);
 int gps_config_set(const char *str, void * el, uint8_t force);

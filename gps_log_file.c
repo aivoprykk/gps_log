@@ -15,6 +15,7 @@
 #include <esp_mac.h>
 
 #include "gps_data.h"
+#include "gps_log.h"
 #include "esp_log.h"
 
 #include "strbf.h"
@@ -96,13 +97,16 @@ void log_err(const gps_context_t *context, const char *message) {
 // }
 
 gps_log_file_config_t *log_config_init() {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] partno: %hhu", __func__, vfs_ctx.gps_log_part);
-    assert(vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
+#endif
     strbf_t buf;
     strbf_inits(&buf, log_config.base_path, ESP_VFS_PATH_MAX+1);
+    if(vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point) {
     struct stat sb = {0};
     int statok=-1, i = 0;
     strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
+    }
     strbf_finish(&buf);
     DLOG(TAG, "[%s] log path: %s\n", __func__, &log_config.base_path[0]);
     return &log_config;
@@ -130,8 +134,15 @@ gps_log_file_config_t *log_config_init() {
 //     return ESP_OK;
 // }
 
+bool log_files_opened(gps_context_t *context) {
+    assert(context);
+    return context->files_opened;
+}
+
 void open_files(gps_context_t *context) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (context->files_opened)
         return;
@@ -228,7 +239,9 @@ void open_files(gps_context_t *context) {
 }
 
 void close_files(gps_context_t *context) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         return;
@@ -252,7 +265,7 @@ void flush_files(const gps_context_t *context) {
     if (!context->files_opened) {
         return;
     }
-    if (rtc_config.output_rate <= 10) {  //@18Hz still lost points !!!
+    if (rtc_config.output_rate <= 10) {
         if (load_balance == 0) {
             log_fsync(context, SD_UBX);
         }
@@ -287,7 +300,7 @@ void log_to_file(gps_context_t *context) {
         strbf_t sb;
         char datastr[255] = {0}, buffer[56] = {0};
         strbf_inits(&sb, datastr, 255);
-        if ((context->interval_gps_msg > context->time_out_gps_msg) && (context->files_opened) && (ubx->ubx_msg.count_nav_pvt > 10)) {  // check for timeout navPvt message !!
+        if ((context->files_opened) && (ubx->ubx_msg.count_nav_pvt > 10) && gps_read_msg_timeout(1)) {  // check for timeout navPvt message !!
             // printf("sd log txt err\n");
             context->next_gpy_full_frame = 1;
             time_to_char_hms(nav_pvt->hour, nav_pvt->minute, nav_pvt->second, buffer);
@@ -300,7 +313,7 @@ void log_to_file(gps_context_t *context) {
                 WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
             }
             ++context->lost_frames;
-            ESP_LOGE(TAG, "Lost ubx frame frame: %lu interval: %lu, time: %s", ubx->ubx_msg.count_nav_pvt, context->interval_gps_msg, buffer);
+            WLOG(TAG, "Lost ubx frame frame: %lu, time: %s", ubx->ubx_msg.count_nav_pvt, buffer);
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
         }
         if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
@@ -331,7 +344,9 @@ void log_to_file(gps_context_t *context) {
 // }
 
 void model_info(const gps_context_t *context, int model) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
@@ -345,10 +360,7 @@ void model_info(const gps_context_t *context, int model) {
         char message[255] = {0};
         strbf_inits(&sb, &(message[0]), 255);
         strbf_puts(&sb, "Dynamic model: ");
-        if (model == 1)
-            strbf_puts(&sb, "Sea");
-        else
-            strbf_puts(&sb, "Portable");
+        strbf_puts(&sb, dynamic_models[model==0 ? 0 : model - 2]);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, context->ubx_device->ubx_msg.count_nav_pvt);
         WRITETXT(sb.start, sb.cur - sb.start);
@@ -358,7 +370,9 @@ void model_info(const gps_context_t *context, int model) {
 }
 
 void session_info(const gps_context_t *context, struct gps_data_s *G) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
@@ -384,11 +398,11 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, context->first_fix);
     strbf_puts(&sb, " s\n");
     strbf_puts(&sb, "Total time : ");
-    strbf_putn(&sb, (int)((millis - context->start_logging_millis) / 1000));
+    strbf_putn(&sb, SEC_TO_MS((millis - context->start_logging_millis)));
     strbf_puts(&sb, " s\n");
 
     strbf_puts(&sb, "Total distance : ");
-    strbf_putn(&sb, (int)G->total_distance / 1000);
+    strbf_putn(&sb, MM_TO_M(G->total_distance));
     strbf_puts(&sb, " m\n");
     strbf_puts(&sb, "Sample rate : ");
     strbf_putn(&sb, context->ubx_device->rtc_conf->output_rate);
@@ -400,12 +414,7 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, c_gps_cfg.timezone);
     strbf_puts(&sb, " h\n");
     strbf_puts(&sb, "Dynamic model: ");
-    if (rtc_config.nav_mode == 1)
-        strbf_puts(&sb, "Sea");
-    else if (rtc_config.nav_mode == 2)
-        strbf_puts(&sb, "Automotive");
-    else
-        strbf_puts(&sb, "Portable");
+    strbf_puts(&sb, dynamic_models[rtc_config.nav_mode==0 ? 0 : rtc_config.nav_mode-2]);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Ublox GNSS-enabled : ");
     strbf_putl(&sb, ubxMessage->monGNSS.enabled_Gnss);
@@ -440,7 +449,9 @@ void session_info(const gps_context_t *context, struct gps_data_s *G) {
 }
 
 void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s *M) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
@@ -460,7 +471,7 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
         time_to_char_hms(M->time_hour[i], M->time_min[i], M->time_sec[i], tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Distance: ");
-        f2_to_char(M->m_Distance[i] / 1000.0f / context->ubx_device->rtc_conf->output_rate, tekst);
+        f2_to_char(MM_TO_M(M->m_Distance[i]) / context->ubx_device->rtc_conf->output_rate, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, M->message_nr[i]);
@@ -478,7 +489,9 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
 }
 
 void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s *S) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);
@@ -493,6 +506,8 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
     xdtostrf(S->avg_5runs * c_gps_cfg.speed_calibration, 1, 3, tekst);
     strbf_puts(&sb, tekst);
     strbf_puts(&sb, units);
+    strbf_puts(&sb, " S");
+    strbf_putl(&sb, S->time_window);
     strbf_puts(&sb, " avg 5_best_runs\n");
     // errorfile.open();
     // write(sdcard_config.errorfile, message, sb.cur - sb.start);
@@ -521,7 +536,9 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
 }
 
 void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s *A, struct gps_speed_by_dist_s *M) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
+#endif
     assert(context);
     if (!context->files_opened) {
         ESP_LOGE(TAG, "[%s] files not open", __FUNCTION__);

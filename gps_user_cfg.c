@@ -20,22 +20,23 @@ static const char * TAG = "gps_user_cfg"; // for logging
 
 #define CFG_TO_BASE(l) (l-CFG_GPS_ITEM_BASE)
 #define SPEED_UNIT_ITEM_LIST(l) l(m/s) l(km/h) l(knots)
-#define SAMPLE_RATE_ITEM_LIST(l) l(1 Hz) l(5 Hz) l(10 Hz) l(16 Hz) l(20 Hz)
+#define SAMPLE_RATE_ITEM_LIST(l) l(1 Hz) l(2 Hz) l(5 Hz) l(10 Hz) l(16 Hz) l(20 Hz)
 /// Portable -  Applications with low acceleration, e.g. portable devices. Suitable for most situations; max velocity is 310ms deviation medium
 /// Sea - Recommended for applications at sea, with zero vertical velocity. Zero vertical velocity assumed. Sea level assumed; max velocity is 25ms deviation medium
 /// Automotive - Used for applications with equivalent dynamics to those of a passenger car. Low vertical acceleration assumed; max velocity 100ms deviation medium
 /// Pedestrian Applications with low acceleration and speed, e.g. how a pedestrian would move. Low acceleration assumed; max velocity 30ms, deviation small
-#define DYNAMIC_MODEL_ITEM_LIST(l) l(Portable) l(Sea) l(Automotive) l(Pedestrian)
+/// 0 Portable, 2 Stationary, 3 Pedestrian, 4 Automotive, 5 Sea
+#define DYNAMIC_MODEL_ITEM_LIST(l) l(Portable) l(Pedestrian) l(Automotive) l(Sea)
 #define GSS_DESC_ITEM_LIST(l) l(G + E + B + R) l(G + B + R) l(G + E + R) l(G + E + B) l(G + R) l(G + B) l(G + E)
 #define GNSS_DESC_VAL_LIST(l) l(111) l(107) l(103) l(47) l(99) l(43) l(39)
 #define TIMEZONE_ITEM_LIST(l) l(UTC) l(UTC+1) l(UTC+2) l(UTC+3)
-#define FILE_DATE_TIME_ITEM_LIST(l) l(name_MAC_index) l(name_date_time) l(date_time_name)
+#define FILE_DATE_TIME_ITEM_LIST(l) l(name_mac_index) l(name_date_time) l(date_time_name)
 #define L(x) x,
 static const char * const config_gps_items[] = { CFG_GPS_USER_CFG_ITEM_LIST(STRINGIFY_V) };
 const size_t gps_user_cfg_item_count = sizeof(config_gps_items) / sizeof(config_gps_items[0]);
 const char * const speed_units[] = {SPEED_UNIT_ITEM_LIST(STRINGIFY)};
 static const char * const sample_rates[] = {SAMPLE_RATE_ITEM_LIST(STRINGIFY)};
-static const char * const dynamic_models[] = {DYNAMIC_MODEL_ITEM_LIST(STRINGIFY)};
+const char * const dynamic_models[] = {DYNAMIC_MODEL_ITEM_LIST(STRINGIFY)};
 static const char * const gnss_desc[] = {GSS_DESC_ITEM_LIST(STRINGIFY)};
 static const char * const not_set = "not set";
 static const uint8_t gnss_desc_val[] = {GNSS_DESC_VAL_LIST(L)};
@@ -78,7 +79,9 @@ static void gps_cfg_unlock() {
 }
 
 struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] num:%d", __func__, num);
+#endif
     if(!item) return 0;
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) num = CFG_GPS_ITEM_BASE;
     item->name = config_gps_items[CFG_TO_BASE(num)];
@@ -99,17 +102,14 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 break;
             case gps_cfg_sample_rate:
                 item->value = rtc_config.output_rate;
-                if(rtc_config.output_rate == 1) {
-                    item->desc = sample_rates[0];
-                }
-                else if(rtc_config.output_rate == 16) {
-                    item->desc = sample_rates[3];
-                }
-                else if(rtc_config.output_rate%5 == 0 && rtc_config.output_rate <= 20) {
-                    item->desc = sample_rates[rtc_config.output_rate/5];
-                }
-                else {
-                    item->desc = not_set;
+                switch(rtc_config.output_rate) {
+                    case UBX_OUTPUT_1HZ: item->desc = sample_rates[0]; break;
+                    case UBX_OUTPUT_2HZ: item->desc = sample_rates[1]; break;
+                    case UBX_OUTPUT_5HZ: item->desc = sample_rates[2]; break;
+                    case UBX_OUTPUT_10HZ: item->desc = sample_rates[3]; break;
+                    case UBX_OUTPUT_16HZ: item->desc = sample_rates[4]; break;
+                    case UBX_OUTPUT_20HZ: item->desc = sample_rates[5]; break;
+                    default: item->desc = not_set; break;
                 }
                 break;
             case gps_cfg_timezone:
@@ -151,20 +151,18 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 item->value = rtc_config.msgout_sat ? 1 : 0;
                 item->desc = rtc_config.msgout_sat ? "on" : "off";
                 break;
-            case gps_cfg_dynamic_model_auto:
-                item->value = rtc_config.nav_mode_auto ? 1 : 0;
-                item->desc = rtc_config.nav_mode_auto ? "on" : "off";
-                break;
+            // case gps_cfg_dynamic_model_auto:
+            //     item->value = rtc_config.nav_mode_auto ? 1 : 0;
+            //     item->desc = rtc_config.nav_mode_auto ? "on" : "off";
+            //     break;
             case gps_cfg_dynamic_model:
                 item->value = rtc_config.nav_mode;
-                if(item->value < 3) {
-                    item->desc = dynamic_models[item->value];
-                }
-                else if(item->value == 4) {
-                    item->desc = dynamic_models[item->value-1];
-                }
-                else {
-                    item->desc = "portable";
+                switch(rtc_config.nav_mode) {
+                    case UBX_MODE_PORTABLE: item->desc = dynamic_models[0]; break;
+                    case UBX_MODE_PEDESTRIAN: item->desc = dynamic_models[1]; break;
+                    case UBX_MODE_AUTOMOTIVE: item->desc = dynamic_models[2]; break;
+                    case UBX_MODE_SEA: item->desc = dynamic_models[3]; break;
+                    default: item->desc = not_set; break;
                 }
                 break;
             case gps_cfg_file_date_time:
@@ -185,38 +183,55 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
     return item;
 }
 
+static void set_gps_time_out_msg(void) {
+#if C_LOG_LEVEL < 3
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    gps->time_out_gps_msg = HZ_TO_MS(rtc_config.output_rate) + 75;  // max time out = 175 ms
+}
+
 static void set_speed_calibration_unit(void) {
+#if C_LOG_LEVEL < 3
+    ILOG(TAG, "[%s]", __func__);
+#endif
     c_gps_cfg.speed_calibration = c_gps_cfg.speed_unit == 1 ? 0.0036 : c_gps_cfg.speed_unit == 2 ? 0.00194384449 : 0.001;
 }
 
-int set_gps_cfg_item(int num) {
+int set_gps_cfg_item(int num, bool skip_done_msg) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] num:%d", __func__, num);
+#endif
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) return 255;
     const char *name = config_gps_items[CFG_TO_BASE(num)];
     if(gps_cfg_lock(portMAX_DELAY) == pdTRUE){
         switch(num) {
             case gps_cfg_gnss:
-                if(rtc_config.gnss == 111) rtc_config.gnss = 107;
-                else if(rtc_config.gnss == 107) rtc_config.gnss = 103;
-                else if(rtc_config.gnss == 103) rtc_config.gnss = 47;
-                else if(rtc_config.gnss == 47) rtc_config.gnss = 99;
-                else if(rtc_config.gnss == 99) rtc_config.gnss = 43;
-                else if(rtc_config.gnss == 43) rtc_config.gnss = 39;
-                else if(rtc_config.gnss == 39) rtc_config.gnss = 111;
-                else rtc_config.gnss = 111;
+                switch(rtc_config.gnss) {
+                    case 111: rtc_config.gnss = 107; break;
+                    case 107: rtc_config.gnss = 103; break;
+                    case 103: rtc_config.gnss = 47; break;
+                    case 47: rtc_config.gnss = 99; break;
+                    case 99: rtc_config.gnss = 43; break;
+                    case 43: rtc_config.gnss = 39; break;
+                    case 39: rtc_config.gnss = 111; break;
+                    default: rtc_config.gnss = 111; break;
+                }
                 break;
             case gps_cfg_sample_rate:
-                if(rtc_config.output_rate == 5) rtc_config.output_rate = 1;
-                else if(rtc_config.output_rate == 10) rtc_config.output_rate = 5;
-                else if(rtc_config.output_rate == 16) rtc_config.output_rate = 10;
-                else if(rtc_config.output_rate == 20) rtc_config.output_rate = 16;
-                else rtc_config.output_rate = 20;
+                switch(rtc_config.output_rate) {
+                    case UBX_OUTPUT_20HZ: rtc_config.output_rate = UBX_OUTPUT_16HZ; break;
+                    case UBX_OUTPUT_16HZ: rtc_config.output_rate = UBX_OUTPUT_10HZ; break;
+                    case UBX_OUTPUT_10HZ: rtc_config.output_rate = UBX_OUTPUT_5HZ; break;
+                    case UBX_OUTPUT_5HZ: rtc_config.output_rate = UBX_OUTPUT_2HZ; break;
+                    case UBX_OUTPUT_2HZ: rtc_config.output_rate = UBX_OUTPUT_1HZ; break;
+                    default: rtc_config.output_rate = UBX_OUTPUT_20HZ; break;
+                }
                 break;
             case gps_cfg_timezone:
-                if(c_gps_cfg.timezone == 1) c_gps_cfg.timezone = 2;
+                if(c_gps_cfg.timezone == 0) c_gps_cfg.timezone = 1;
+                else if(c_gps_cfg.timezone == 1) c_gps_cfg.timezone = 2;
                 else if(c_gps_cfg.timezone == 2) c_gps_cfg.timezone = 3;
-                else if(c_gps_cfg.timezone == 3) c_gps_cfg.timezone = 1;
-                else c_gps_cfg.timezone = 1;
+                else c_gps_cfg.timezone = 0;
                 break;
             case gps_cfg_speed_unit:
                 if(c_gps_cfg.speed_unit == 1) c_gps_cfg.speed_unit = 0;
@@ -268,14 +283,16 @@ int set_gps_cfg_item(int num) {
             case gps_cfg_log_ubx_nav_sat:
                 rtc_config.msgout_sat = rtc_config.msgout_sat ? 0 : 1;
                 break;
-            case gps_cfg_dynamic_model_auto:
-                rtc_config.nav_mode_auto = rtc_config.nav_mode_auto ? 0 : 1;
-                break;
+            // case gps_cfg_dynamic_model_auto:
+            //     rtc_config.nav_mode_auto = rtc_config.nav_mode_auto ? 0 : 1;
+            //     break;
             case gps_cfg_dynamic_model:
-                if(rtc_config.nav_mode == 0) rtc_config.nav_mode = 4;
-                else if(rtc_config.nav_mode == 2) rtc_config.nav_mode = 1;
-                else if(rtc_config.nav_mode == 4) rtc_config.nav_mode = 2;
-                else rtc_config.nav_mode = 0;
+                switch(rtc_config.nav_mode) {
+                    case UBX_MODE_SEA: rtc_config.nav_mode = UBX_MODE_AUTOMOTIVE; break;
+                    case UBX_MODE_AUTOMOTIVE: rtc_config.nav_mode = UBX_MODE_PEDESTRIAN; break;
+                    case UBX_MODE_PEDESTRIAN: rtc_config.nav_mode = UBX_MODE_PORTABLE; break;
+                    default: rtc_config.nav_mode = UBX_MODE_SEA; break;
+                }
                 break;
             case gps_cfg_file_date_time:
                 if(c_gps_cfg.file_date_time == 0) c_gps_cfg.file_date_time = 1;
@@ -291,18 +308,29 @@ int set_gps_cfg_item(int num) {
         if(num == gps_cfg_speed_unit) {
             set_speed_calibration_unit();
         }
-        else if(num == gps_cfg_gnss || num == gps_cfg_sample_rate || num == gps_cfg_log_ubx_nav_sat || num == gps_cfg_dynamic_model) {
-            if(gps && gps->ubx_restart_requested == 0 && gps->ubx_device->config_ok)
-                gps->ubx_restart_requested = 1;
+        else if((num == gps_cfg_gnss || num == gps_cfg_sample_rate || num == gps_cfg_log_ubx_nav_sat || num == gps_cfg_dynamic_model) && gps && gps->ubx_device && gps->ubx_device->config_ok) {
+            if(num == gps_cfg_dynamic_model)
+                ubx_set_nav_mode(gps->ubx_device, rtc_config.nav_mode);
+            else {
+                if(num == gps_cfg_sample_rate)
+                    set_gps_time_out_msg();
+                ubx_set_ggnss_and_rate(gps->ubx_device, rtc_config.gnss, rtc_config.output_rate);
+#if C_LOG_LEVEL < 3
+                ILOG(TAG, "[%s] set gnss: %d, rate: %d", __func__, rtc_config.gnss, rtc_config.output_rate);
+#endif
+            }
         }
         gps_cfg_unlock();
     }
-    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), portMAX_DELAY);
+    if(!skip_done_msg) /// if set, no message is sent and no cfg save requested
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), portMAX_DELAY);
     return num;
 }
 
 uint8_t gps_cfg_get_pos(const char *str) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] str: %s", __func__, str ? str : "-");
+#endif
     if(!str) {
         return 254;
     }
@@ -338,7 +366,9 @@ uint8_t gps_cfg_get_pos(const char *str) {
 }
 
 uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] pos: %hhu", __func__, pos);
+#endif
     if (!el) {
         return 254;
     }
@@ -347,68 +377,69 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
     }
     uint8_t changed = 255, ret = 0;
 #if defined(CONFIG_GPS_LOG_USE_CJSON)
-    cJSON *value = (cJSON *)el;
+    cJSON *item = (cJSON *)el;
 #else
-    JsonNode *value = (JsonNode *)el;
+    JsonNode *item = (JsonNode *)el;
 #endif
     if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
         switch (pos) {
             case gps_cfg_file_date_time:
-                ret = set_hhu(value, &c_gps_cfg.file_date_time, 0);
+                ret = set_hhu(item, &c_gps_cfg.file_date_time, 0);
                 if(!ret) changed = gps_cfg_file_date_time;
                 break;
-            case gps_cfg_timezone:  // choice for timedifference in hours with UTC, for Belgium 1 or 2 (summertime)
-                ret = set_f(value, &c_gps_cfg.timezone, 0);
+            case gps_cfg_timezone:  // choice for timedifference in hours with UTC, for Belgium 1, 2, 3 for estonia (summer time)
+                ret = set_f(item, &c_gps_cfg.timezone, 0);
                 if(!ret) changed = gps_cfg_timezone;
                 break;
             case gps_cfg_speed_unit:  // conversion m/s to km/h, for knots use 1.944
-                ret = set_hhu(value, &c_gps_cfg.speed_unit, 0);
+                ret = set_hhu(item, &c_gps_cfg.speed_unit, 0);
                 if(!ret) changed = gps_cfg_speed_unit;
                 break;
-            case gps_cfg_sample_rate:  // gps_rate in Hz, 1, 5 or 10Hz !!!
-                ret = set_hhu(value, (uint8_t*)&rtc_config.output_rate, 0);
+            case gps_cfg_sample_rate:  // gps_rate in Hz, 1, 2, 5 or 10Hz !!!
+                ret = set_hhu(item, (uint8_t*)&rtc_config.output_rate, 0);
                 if(!ret) changed = gps_cfg_sample_rate;
+                set_gps_time_out_msg();
                 break;
             case gps_cfg_gnss:  // default setting 2 GNSS, GPS & GLONAS
-                ret = set_hhu(value, &rtc_config.gnss, 0);
+                ret = set_hhu(item, &rtc_config.gnss, 0);
                 if(!ret) changed = gps_cfg_gnss;
                 break;
-            case gps_cfg_dynamic_model_auto: /// wether device can switch mode automatically
-                ret = set_hhu(value, (uint8_t*)&rtc_config.nav_mode_auto, 0);
-                if(!ret) changed = gps_cfg_dynamic_model_auto;
-                break;
+            // case gps_cfg_dynamic_model_auto: /// wether device can switch mode automatically
+            //     ret = set_hhu(item, (uint8_t*)&rtc_config.nav_mode_auto, 0);
+            //     if(!ret) changed = gps_cfg_dynamic_model_auto;
+            //     break;
             case gps_cfg_dynamic_model:  // sea, portable, automotive, pedestrian
-                ret = set_hhu(value, (uint8_t*)&rtc_config.nav_mode, 0);
+                ret = set_hhu(item, (uint8_t*)&rtc_config.nav_mode, 0);
                 if(!ret) changed = gps_cfg_dynamic_model;
                 break;
             case gps_cfg_log_txt: // || !strcmp(var, "logTXT")) {  // switchinf off .txt files
-                ret = set_bit(value, &log_config.log_file_bits, SD_TXT, 0);
+                ret = set_bit(item, &log_config.log_file_bits, SD_TXT, 0);
                 if(!ret) changed = gps_cfg_log_txt;
                 break;
             case gps_cfg_log_ubx: // || !strcmp(var, "logUBX")) {  // log to .ubx
-                ret = set_bit(value, &log_config.log_file_bits, SD_UBX, 0);
+                ret = set_bit(item, &log_config.log_file_bits, SD_UBX, 0);
                 if(!ret) changed = gps_cfg_log_ubx;
                 break;
             case gps_cfg_log_ubx_nav_sat: // || !strcmp(var, "logUBX_nav_sat")) {  // log nav sat msg to .ubx
-                ret = set_hhu(value, (uint8_t*)&rtc_config.msgout_sat, 0);
+                ret = set_hhu(item, (uint8_t*)&rtc_config.msgout_sat, 0);
                 if(!ret) changed = gps_cfg_log_ubx_nav_sat;
                 break;
             case gps_cfg_log_sbp: // || !strcmp(var, "logSBP")) {  // log to .sbp
-                ret = set_bit(value, &log_config.log_file_bits, SD_SBP, 0);
+                ret = set_bit(item, &log_config.log_file_bits, SD_SBP, 0);
                 if(!ret) changed = gps_cfg_log_sbp;
                 break;
             case gps_cfg_log_gpx: //  || !strcmp(var, "logGPX")) {
-                ret = set_bit(value, &log_config.log_file_bits, SD_GPX, 0);
+                ret = set_bit(item, &log_config.log_file_bits, SD_GPX, 0);
                 if(!ret) changed = gps_cfg_log_gpx;
                 break;
 #ifdef GPS_LOG_ENABLE_GPY
             case gps_cfg_log_gpy: // || !strcmp(var, "logGPY")) {
-                ret = set_bit(value, &log_config.log_file_bits, SD_GPY, 0);
+                ret = set_bit(item, &log_config.log_file_bits, SD_GPY, 0);
                 if(!ret) changed = gps_cfg_log_gpy;
                 break;
 #endif
             case gps_cfg_ubx_file: // ]) || !strcmp(var, "UBXfile")) {
-                ret = set_c(value, &c_gps_cfg.ubx_file[0], 0);
+                ret = set_c(item, &c_gps_cfg.ubx_file[0], 0);
                 if(!ret) changed = gps_cfg_ubx_file;
                 break;
             default:
@@ -417,13 +448,16 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
         }
         gps_cfg_unlock();
     }
-    if(changed < 253)
+    if(changed < 253){
         esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_CHANGED, &changed, sizeof(changed), portMAX_DELAY);
+    }
     return changed;
 }
 
 int gps_config_set(const char *str, void *root, uint8_t force) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG,"[%s] name: %s",__func__, str ? str : "-");
+#endif
     if (!root)  return 254;
     const char *var = 0;
     uint8_t changed = 255;
@@ -463,7 +497,9 @@ err:
 }
 
 esp_err_t gps_config_decode(const char *json) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG,"[%s]",__func__);
+#endif
     int ret = ESP_OK;
 #if defined(CONFIG_GPS_LOG_USE_CJSON)
     cJSON *root = cJSON_Parse(json);
@@ -586,7 +622,9 @@ static uint8_t add_from_list(strbf_t *lsb, const char * const *list, size_t len)
 }
 
 uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG,"[%s] pos: %hhu",__func__, pos);
+#endif
     if (!lsb) return 254;
     if(pos < CFG_GPS_ITEM_BASE || pos >= CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) {
         return 255;
@@ -630,7 +668,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                     strbf_puts(lsb, cfg_values[0]);
                     for (uint8_t i = 0, j = lengthof(sample_rates); i < j; i++) {
                         strbf_puts(lsb, cfg_values[1]);
-                        strbf_putn(lsb, i==0 ? 1 : i==1 ? 5 : i==2 ? 10 : i==3 ? 16 : 20);
+                        strbf_putn(lsb, i==0 ? UBX_OUTPUT_1HZ : i==1 ? UBX_OUTPUT_2HZ : i==2 ? UBX_OUTPUT_5HZ : i==3 ? UBX_OUTPUT_10HZ : i==4 ? UBX_OUTPUT_16HZ : UBX_OUTPUT_20HZ);
                         strbf_puts(lsb, cfg_values[2]);
                         strbf_puts(lsb, sample_rates[i]);
                         strbf_puts(lsb, "\"}");
@@ -684,7 +722,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                     strbf_puts(lsb, cfg_values[0]);
                     for (uint8_t i = 0, j = lengthof(dynamic_models); i < j; i++) {
                         strbf_puts(lsb, cfg_values[1]);
-                        strbf_putn(lsb, i < 3 ? i : i+1);
+                        strbf_putn(lsb, i == 0 ? i : i+2);
                         strbf_puts(lsb, cfg_values[2]);
                         strbf_puts(lsb, dynamic_models[i]);
                         strbf_puts(lsb, "\"}");
@@ -693,13 +731,13 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                     strbf_puts(lsb, "]");
                 }
                 break;
-            case gps_cfg_dynamic_model_auto: // )])||!strcmp(name, "logTXT")) {  // switchinf off .txt files
-                strbf_putc(lsb, rtc_config.nav_mode_auto == 1 ? '1' : '0');
-                if (mode) {
-                    strbf_puts(lsb, cfg_values[12]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
-                }
-                break;
+            // case gps_cfg_dynamic_model_auto: // )])||!strcmp(name, "logTXT")) {  // switchinf off .txt files
+            //     strbf_putc(lsb, rtc_config.nav_mode_auto == 1 ? '1' : '0');
+            //     if (mode) {
+            //         strbf_puts(lsb, cfg_values[12]); // ",\"info\":\"log to"
+            //         strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
+            //     }
+            //     break;
             case gps_cfg_log_txt: // )])||!strcmp(name, "logTXT")) {  // switchinf off .txt files
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_TXT) == 1 ? '1' : '0');
                 if (mode) {
@@ -766,7 +804,9 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
 }
 
 char *gps_config_get(const char *name, struct strbf_s *lsb, uint8_t mode) {
+#if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] name:%s", __func__, name ? name : "-");
+#endif
     assert(lsb);
     uint8_t pos = gps_cfg_get_pos(name);
     if (pos == 255) {

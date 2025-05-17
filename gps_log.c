@@ -7,6 +7,7 @@
 #include "ubx_msg.h"
 #include "logger_common.h"
 #include "dstat_screens.h"
+#include "gps_user_cfg.h"
 
 #include "esp_mac.h"
 
@@ -61,7 +62,6 @@ static void s(void* arg) {
 #endif
 
 static uint32_t last_flush_time = 0;
-static bool gps_is_moving = false;
 bool gps_task_is_running = false;
 TaskHandle_t gps_task_handle = 0;
 static uint8_t ubx_fail_count = 0;
@@ -100,32 +100,32 @@ static int8_t set_time(float time_offset) {
     ILOG(TAG, "[%s] time_offset: %f", __FUNCTION__, time_offset);
 #endif
     //ESP_LOGI(TAG, "[%s] sats: %" PRIu8, __FUNCTION__, pvt->numSV);
-    struct tm my_time={0};      // time elements structure
     time_t unix_timestamp = 0;  // a timestamp in seconds
 #if defined(DLS)
     // summertime is on march 26 2023 2 AM, see
     // https://www.di-mgt.com.au/wclock/help/wclo_tzexplain.html
     setenv("TZ", "CET0CEST,M3.5.0/2,M10.5.0/3", 1);  // timezone UTC = CET, Daylightsaving ON :
                                                      // TZ=CET-1CEST,M3.5.0/2,M10.5.0/3
-    tzset();                                         // this works for CET, but TZ string is different for every Land /
-                                                     // continent....
 #else
     setenv("TZ", "UTC", 0);
-    tzset();
 #endif
-    my_time.tm_sec = pvt->second;
-    my_time.tm_hour = pvt->hour;
-    my_time.tm_min = pvt->minute;
-    my_time.tm_mday = pvt->day;
-    my_time.tm_mon = pvt->month - 1;     // mktime needs months 0 - 11
-    my_time.tm_year = pvt->year - 1900;  // mktime needs years since 1900, so deduct 1900
-    unix_timestamp = mktime(&my_time);                // mktime returns local time, so TZ is important !!!
+    tzset();                            // this works for CET, but TZ string is different for every Land / continent....
+    struct tm my_time={
+        .tm_sec = pvt->second,
+        .tm_min = pvt->minute,
+        .tm_hour = pvt->hour,
+        .tm_mday = pvt->day,
+        .tm_mon = pvt->month - 1,       // mktime needs months 0 - 11
+        .tm_year = pvt->year - 1900,    // mktime needs years since 1900, so deduct 1900
+        // .tm_isdst = -1,              // daylight saving time flag
+    };
+    unix_timestamp = mktime(&my_time);  // mktime returns local time, so TZ is important !!!
     int64_t utc_ms = unix_timestamp * 1000LL + (pvt->nano + 500000) / 1000000LL;
 #if (C_LOG_LEVEL < 4)
     WLOG(TAG, "GPS raw time: %d-%02d-%02d %02d:%02d:%02d %" PRId64, pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, utc_ms);
 #endif
     struct timeval tv = {
-        .tv_sec = (time_t)(unix_timestamp + (time_offset * 3600)),
+        .tv_sec = (time_t)(unix_timestamp + HOUR_TO_SEC(time_offset)),
         .tv_usec = 0};  // clean utc time !!
     settimeofday(&tv, NULL);
     struct tm tms;
@@ -143,11 +143,11 @@ static int8_t set_time(float time_offset) {
     return 1;
 }
 
-uint8_t gps_read_msg_timeout() {
+uint8_t gps_read_msg_timeout(uint8_t magnitude) {
     if(!gps || !gps->ubx_device) return 0;
-    return  (gps->time_set && (gps->ubx_device->ubx_msg.navPvt.iTOW - gps->old_nav_pvt_itow) > (gps->time_out_gps_msg * 5));
+    if(!magnitude) magnitude = 1;
+    return (gps->time_set && (gps->ubx_device->ubx_msg.navPvt.iTOW - gps->old_nav_pvt_itow) > (gps->time_out_gps_msg * (magnitude))) ? 1 : 0;
 }
-
 
 uint8_t gps_has_version_set() {
     if(gps && gps->ubx_device) {
@@ -206,7 +206,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         //printf("[%s] GPS nav_pvt gSpeed: %"PRId32"\n", __FUNCTION__, gps->gps_speed);
                         
                         // gps msg interval used by sd card logging and run detection and show trouble screen when no gps signal
-                        gps->interval_gps_msg = nav_pvt->iTOW - gps->old_nav_pvt_itow;
+                        // gps->interval_gps_msg = nav_pvt->iTOW - gps->old_nav_pvt_itow;
                         gps->old_nav_pvt_itow = nav_pvt->iTOW;
         
                         if (gps->files_opened && (now - last_flush_time) > 60000) {
@@ -227,11 +227,11 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         //saved_count++;
                         if (gps->gps_speed > STANDSTILL_DETECTION_MAX) { // log only when speed is above 1 m/s == 3.6 km/h
                             log_to_file(gps);  // here it is also printed to serial !!
-                            if(!gps_is_moving) {
+                            if(!gps->gps_is_moving) {
 #if (C_LOG_LEVEL < 2)
-                                    ILOG(TAG, "[%s] GPS moving detected (%ld ms), run start event sent.\n", __FUNCTION__, gps->gps_speed);
+                                ILOG(TAG, "[%s] GPS moving detected (%ld ms), run start event sent.\n", __FUNCTION__, gps->gps_speed);
 #endif
-                                gps_is_moving = true;
+                                gps->gps_is_moving = true;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_MOVING, NULL, 0, portMAX_DELAY);
                             }
                             // if(!m_context_rtc.RTC_screen_auto_refresh && lcd_ui_task_is_paused()) {
@@ -239,11 +239,11 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                             // }
                         }
                         else {
-                            if(gps_is_moving) {
+                            if(gps->gps_is_moving) {
 #if (C_LOG_LEVEL < 2)
-                                    ILOG(TAG,"[%s] GPS stop run detected (%ld ms), stop event sent.\n", __FUNCTION__, gps->gps_speed);
+                                ILOG(TAG,"[%s] GPS stop run detected (%ld ms), stop event sent.\n", __FUNCTION__, gps->gps_speed);
 #endif
-                               gps_is_moving = false;
+                                gps->gps_is_moving = false;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_STOPPING, NULL, 0, portMAX_DELAY);
                             }
                             // if(!m_context_rtc.RTC_screen_auto_refresh) {
@@ -311,7 +311,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                 break;
             case MT_NAV_SAT:
                 ubxMessage->count_nav_sat++;
-                // ubxMessage->nav_sat.iTOW=ubxMessage->nav_sat.iTOW-18*1000; //to match 18s diff UTC nav pvt & GPS nav sat !!!
+                ubxMessage->nav_sat.iTOW = ubxMessage->nav_sat.iTOW - SEC_TO_MS(18); //to match 18s diff UTC nav pvt & GPS nav sat !!!
                 push_gps_sat_info(&gps->Ublox_Sat, &ubxMessage->nav_sat);
                 break;
             default:
@@ -342,9 +342,9 @@ static void gpsTask(void *parameter) {
 // #endif
         now = get_millis();
         if (!gps_has_version_set() || gps->ubx_restart_requested) {
-            mt = now - (ubx_dev->ready ? ubx_dev->ready_time : 5000);
+            mt = now - (ubx_dev->ready ? ubx_dev->ready_time : SEC_TO_MS(5));
             // ILOG(TAG, "[%s] Gps init ... (%lums)", __FUNCTION__, mt);
-            if (mt > 10000) { // 5 seconds
+            if (mt > SEC_TO_MS(10)) { // 5 seconds
                 if(ubx_dev->ready){
                     ubx_off(ubx_dev);
                     delay_ms(100);
@@ -363,6 +363,23 @@ static void gpsTask(void *parameter) {
             }
             gps->ubx_restart_requested = 0;
             goto loop_tail;
+        }
+        else if(vfs_ctx.gps_log_part < VFS_PART_MAX) {
+            if(!gps->output_rate_swp && rtc_config.output_rate >= UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes < TO_K_UL(700)) {
+                WLOG(TAG, "[%s] vfs log part %s free space too low: %llu!", __FUNCTION__, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point, vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes);
+                gps->output_rate_swp = rtc_config.output_rate;
+                rtc_config.output_rate = UBX_OUTPUT_5HZ;
+                set_gps_cfg_item(gps_cfg_sample_rate, 1);
+            }
+            else if(gps->output_rate_swp && rtc_config.output_rate < UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes >= TO_K_UL(700)) {
+                WLOG(TAG, "[%s] vfs log part %s free space ok again: %llu!", __FUNCTION__, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point, vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes);
+                rtc_config.output_rate =(gps->output_rate_swp == UBX_OUTPUT_5HZ) ? UBX_OUTPUT_10HZ :
+                                        (gps->output_rate_swp == UBX_OUTPUT_10HZ) ? UBX_OUTPUT_16HZ :
+                                        (gps->output_rate_swp == UBX_OUTPUT_16HZ) ? UBX_OUTPUT_20HZ :
+                                        UBX_OUTPUT_1HZ; /// have to set 1 step above to calculate saved rate
+                gps->output_rate_swp = 0;
+                set_gps_cfg_item(gps_cfg_sample_rate, 1);
+            }
         }
         esp_err_t ret = ubx_msg_handler(ubx_dev, &ubx_packet);
         if(!ret) { // only decoding if no Wifi connection}
@@ -490,6 +507,10 @@ int gps_shut_down() {
     gps_task_stop();
     ubx_off(ubx_dev);
     gps->time_set = 0;
+    if(gps->output_rate_swp) {
+        rtc_config.output_rate = gps->output_rate_swp;
+        gps->output_rate_swp = 0;
+    }
     end:
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_SHUT_DOWN_DONE, NULL, 0, portMAX_DELAY);
     // if (!no_sleep) {

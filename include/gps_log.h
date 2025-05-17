@@ -13,7 +13,7 @@ void gps_task_stop(void);
 void gps_init(struct gps_context_s * _gps);
 void gps_deinit(void);
 int gps_shut_down(void);
-uint8_t gps_read_msg_timeout(void);
+uint8_t gps_read_msg_timeout(uint8_t magnitude);
 uint8_t gps_has_version_set(void);
 
 #ifdef __cplusplus
