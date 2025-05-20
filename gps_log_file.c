@@ -163,7 +163,7 @@ void open_files(gps_context_t *context) {
         strbf_t tsb;
         struct tm tms;
         strbf_inits(&tsb, timestamp, 16);
-        getLocalTime(&tms, 0);
+        get_local_time(&tms);
         strbf_putl(&tsb, tms.tm_year + 1900);
         if (tms.tm_mon < 9)
             strbf_putc(&tsb, '0');

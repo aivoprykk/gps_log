@@ -14,13 +14,16 @@ typedef float (*screen_f_func_float_t)(void);
 typedef size_t (*screen_f_func_time_t)(char *);
 
 enum screen_f_types {
-    type_float = 0,
-    type_char = 1
+    SCR_TYPE_FLOAT = 0,
+    SCR_TYPE_CHAR = 1,
+    SCR_TYPE_TIME = 2,
+    SCR_TYPE_TIME_HM = 3,
+    SCR_TYPE_TIME_HMS = 4,
 };
 
 typedef struct screen_f_s {
     uint8_t id;
-    uint8_t type;
+    enum screen_f_types type;
     union {
         screen_f_func_float_t num;
         screen_f_func_time_t timestr;
@@ -46,7 +49,7 @@ typedef struct stat_screen_s {
 } stat_screen_t;
 
 // #define STAT_SCREENS_NUM 7
-uint8_t get_stat_screens_count(void);
+// uint8_t get_stat_screens_count(void);
 extern const screen_f_t avail_fields[];
 
 size_t get_display_fld_str(const screen_f_t *fld, char *p1, size_t (*fn)(double, char *));

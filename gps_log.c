@@ -100,7 +100,7 @@ static int8_t set_time(float time_offset) {
     ILOG(TAG, "[%s] time_offset: %f", __FUNCTION__, time_offset);
 #endif
     //ESP_LOGI(TAG, "[%s] sats: %" PRIu8, __FUNCTION__, pvt->numSV);
-    time_t unix_timestamp = 0;  // a timestamp in seconds
+    // time_t unix_timestamp = 0;  // a timestamp in seconds
 #if defined(DLS)
     // summertime is on march 26 2023 2 AM, see
     // https://www.di-mgt.com.au/wclock/help/wclo_tzexplain.html
@@ -110,35 +110,37 @@ static int8_t set_time(float time_offset) {
     setenv("TZ", "UTC", 0);
 #endif
     tzset();                            // this works for CET, but TZ string is different for every Land / continent....
-    struct tm my_time={
+    struct tm my_time = {
         .tm_sec = pvt->second,
         .tm_min = pvt->minute,
         .tm_hour = pvt->hour,
         .tm_mday = pvt->day,
         .tm_mon = pvt->month - 1,       // mktime needs months 0 - 11
         .tm_year = pvt->year - 1900,    // mktime needs years since 1900, so deduct 1900
-        // .tm_isdst = -1,              // daylight saving time flag
+        .tm_isdst = -1,                 // daylight saving time flag
     };
-    unix_timestamp = mktime(&my_time);  // mktime returns local time, so TZ is important !!!
-    int64_t utc_ms = unix_timestamp * 1000LL + (pvt->nano + 500000) / 1000000LL;
-#if (C_LOG_LEVEL < 4)
-    WLOG(TAG, "GPS raw time: %d-%02d-%02d %02d:%02d:%02d %" PRId64, pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, utc_ms);
-#endif
-    struct timeval tv = {
-        .tv_sec = (time_t)(unix_timestamp + HOUR_TO_SEC(time_offset)),
-        .tv_usec = 0};  // clean utc time !!
-    settimeofday(&tv, NULL);
-    struct tm tms;
-    localtime_r(&unix_timestamp, &tms);
-#if (C_LOG_LEVEL < 4)
-    WLOG(TAG, "GPS time set: %d-%02d-%02d %02d:%02d:%02d", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min, tms.tm_sec);
-    if (tms.tm_year < 123) {
-        WLOG(TAG, "[%s] GPS Reported year not plausible (<2023)!", __FUNCTION__);
-        return 0;
+    int sync_period = 30;
+    int ret = c_set_time(&my_time, NANO_TO_US_ROUND(pvt->nano), time_offset);  // set the time in the struct tm
+    if (ret) {
+        ELOG(TAG, "[%s] Failed to set time from gps", __FUNCTION__);
+        sync_period = 5;
+        goto done;
     }
+#if (C_LOG_LEVEL < 3)
+    // unix_timestamp = mktime(&my_time);  // mktime returns local time, so TZ is important !!!
+    // int64_t utc_ms = unix_timestamp * 1000LL + NANO_TO_MILLIS_ROUND(pvt->nano);
+    // int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
+    WLOG(TAG, "GPS pvt time: %d-%02d-%02d %02d:%02d:%02d %ld", pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, pvt->nano);
+    // WLOG(TAG, "GPS tm time : %d-%02d-%02d %02d:%02d:%02d %ld", my_time.tm_year+1900, my_time.tm_mon+1, my_time.tm_mday, my_time.tm_hour, my_time.tm_min, my_time.tm_sec, NANO_TO_US_ROUND(pvt->nano));
+#endif
+#if (C_LOG_LEVEL < 4)
+    struct tm tm;
+    get_local_time(&tm);
+    WLOG(TAG, "GPS time set: %d-%02d-%02d %02d:%02d:%02d", (tm.tm_year) + 1900, (tm.tm_mon) + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 #endif
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_TIME_SET, NULL,0, portMAX_DELAY);
-    gps->next_time_sync = millis + SEC_TO_MS(60); // 1 minute
+    done:
+    gps->next_time_sync = millis + SEC_TO_MS(sync_period); // 1 minute
     gps->time_set = 1;
     return 1;
 }
@@ -311,7 +313,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                 break;
             case MT_NAV_SAT:
                 ubxMessage->count_nav_sat++;
-                ubxMessage->nav_sat.iTOW = ubxMessage->nav_sat.iTOW - SEC_TO_MS(18); //to match 18s diff UTC nav pvt & GPS nav sat !!!
+                ubxMessage->nav_sat.iTOW = ubxMessage->nav_sat.iTOW - SEC_TO_MS(LEAP_UTC_OFFSET); //to match 18s diff UTC nav pvt & GPS nav sat !!!
                 push_gps_sat_info(&gps->Ublox_Sat, &ubxMessage->nav_sat);
                 break;
             default:

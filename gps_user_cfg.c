@@ -36,6 +36,9 @@ static const char * const config_gps_items[] = { CFG_GPS_USER_CFG_ITEM_LIST(STRI
 const size_t gps_user_cfg_item_count = sizeof(config_gps_items) / sizeof(config_gps_items[0]);
 const char * const speed_units[] = {SPEED_UNIT_ITEM_LIST(STRINGIFY)};
 static const char * const sample_rates[] = {SAMPLE_RATE_ITEM_LIST(STRINGIFY)};
+const char * const config_stat_screen_items[] = { STAT_SCREEN_ITEM_LIST(STRINGIFY) };
+const size_t gps_stat_screen_item_count = sizeof(config_stat_screen_items) / sizeof(config_stat_screen_items[0]);
+
 const char * const dynamic_models[] = {DYNAMIC_MODEL_ITEM_LIST(STRINGIFY)};
 static const char * const gnss_desc[] = {GSS_DESC_ITEM_LIST(STRINGIFY)};
 static const char * const not_set = "not set";
@@ -48,6 +51,14 @@ static SemaphoreHandle_t c_sem_lock = 0;
 RTC_DATA_ATTR struct gps_user_cfg_s c_gps_cfg = GPS_USER_CFG_DEFAULTS();
 extern struct gps_context_s *gps;
 extern gps_log_file_config_t log_config;
+
+typedef struct gps_user_cfg_stat_screens_s {
+    STAT_SCREEN_ITEM_LIST(GPS_STAT_S)
+} gps_user_cfg_stat_screens_t;
+
+#define GPS_CFG_STAT_SCREENS_DEFAULTS() { \
+    STAT_SCREEN_ITEM_LIST(GPS_STAT_D) \
+}
 
 void gps_user_cfg_init(void) {
     if(!c_sem_lock) {
@@ -76,6 +87,43 @@ static void gps_cfg_unlock() {
     if (c_sem_lock) {
         xSemaphoreGive(c_sem_lock);
     }
+}
+
+struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_s *item) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s] num:%d", __func__, num);
+#endif
+    if(!item) return 0;
+    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+        if(num>=0 && num<gps_stat_screen_item_count) {
+            item->name = config_stat_screen_items[num];
+            item->pos = num;
+            item->value = (c_gps_cfg.stat_screens & (1 << num)) ? 1 : 0;
+            item->desc = item->value ? "on" : "off";
+        }
+        gps_cfg_unlock();
+    }
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &num, sizeof(num), portMAX_DELAY);
+    return item;
+}
+
+int set_stat_screen_cfg_item(int num) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s] num:%d", __func__, num);
+#endif
+    if(num>=gps_stat_screen_item_count) return 0;
+    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+        uint16_t val = c_gps_cfg.stat_screens;
+        if(num>=0 && num<gps_stat_screen_item_count) {
+            val ^= (1 << num);
+        }
+        if(val!=c_gps_cfg.stat_screens) {
+            c_gps_cfg.stat_screens = val;
+        }
+        gps_cfg_unlock();
+    }
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), portMAX_DELAY);
+    return 1;
 }
 
 struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item) {
@@ -203,6 +251,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
 #endif
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) return 255;
     const char *name = config_gps_items[CFG_TO_BASE(num)];
+    struct gps_user_cfg_evt_data_s evt_data = {num, 0};
     if(gps_cfg_lock(portMAX_DELAY) == pdTRUE){
         switch(num) {
             case gps_cfg_gnss:
@@ -228,6 +277,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
                 }
                 break;
             case gps_cfg_timezone:
+                evt_data.value = c_gps_cfg.timezone;
                 if(c_gps_cfg.timezone == 0) c_gps_cfg.timezone = 1;
                 else if(c_gps_cfg.timezone == 1) c_gps_cfg.timezone = 2;
                 else if(c_gps_cfg.timezone == 2) c_gps_cfg.timezone = 3;
@@ -323,7 +373,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
         gps_cfg_unlock();
     }
     if(!skip_done_msg) /// if set, no message is sent and no cfg save requested
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), portMAX_DELAY);
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &evt_data, sizeof(evt_data), portMAX_DELAY);
     return num;
 }
 
@@ -338,6 +388,9 @@ uint8_t gps_cfg_get_pos(const char *str) {
         if (!strcmp(str, config_gps_items[i])) {
             return i + CFG_GPS_ITEM_BASE;
         }
+    }
+    if(!strcmp(str, "Stat_screens")) {
+        return gps_cfg_stat_screens;
     }
     if(!strcmp(str, "logTXT")) {
         return gps_cfg_log_txt;
@@ -390,6 +443,10 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
             case gps_cfg_timezone:  // choice for timedifference in hours with UTC, for Belgium 1, 2, 3 for estonia (summer time)
                 ret = set_f(item, &c_gps_cfg.timezone, 0);
                 if(!ret) changed = gps_cfg_timezone;
+                break;
+            case gps_cfg_stat_screens: // choice for stats field when no speed, here stat_screen 1, 2 and 3 will be active
+                ret = set_u(item, &c_gps_cfg.stat_screens, 0);
+                if(!ret) changed = gps_cfg_stat_screens;
                 break;
             case gps_cfg_speed_unit:  // conversion m/s to km/h, for knots use 1.944
                 ret = set_hhu(item, &c_gps_cfg.speed_unit, 0);
@@ -525,7 +582,14 @@ esp_err_t gps_config_decode(const char *json) {
             gps_cnf_set_item(i+CFG_GPS_ITEM_BASE, item, 0);
         }
         else {
-            if(i+CFG_GPS_ITEM_BASE == gps_cfg_log_gpx) {
+            if(i+CFG_GPS_ITEM_BASE == gps_cfg_stat_screens) {
+#if defined(CONFIG_GPS_LOG_USE_CJSON)
+                item = cJSON_GetObjectItemCaseSensitive(gps, "statScreens");
+#else
+                item = json_find_member(gps, "statScreens");
+#endif
+            }
+            else if(i+CFG_GPS_ITEM_BASE == gps_cfg_log_gpx) {
 #if defined(CONFIG_GPS_LOG_USE_CJSON)
                 item = cJSON_GetObjectItemCaseSensitive(gps, "logGPX");
 #else
@@ -653,6 +717,25 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                     strbf_puts(lsb, cfg_values[9]);
                     add_from_list(lsb, timezone, lengthof(timezone));
                 }                                        // 2575
+                break;
+            case gps_cfg_stat_screens: // choice for stats field when no speed, here stat_screen 1, 2 and 3 will be active
+                strbf_putn(lsb, c_gps_cfg.stat_screens);
+                if (mode) {
+                    strbf_puts(lsb, ",\"info\":\"Stat_screens choice : activate / deactivate screens to show.\",\"type\":\"int\"");
+                    strbf_puts(lsb, ",\"toggles\":[");
+                    uint16_t j = 1;
+                    for(uint8_t i= 0, k = gps_stat_screen_item_count; i < k; i++, j <<= 1) {
+                        strbf_puts(lsb, "{\"pos\":");
+                        strbf_putn(lsb, i);
+                        strbf_puts(lsb, cfg_values[2]);
+                        strbf_puts(lsb, config_stat_screen_items[i]);
+                        strbf_puts(lsb, "\",\"value\":");
+                        strbf_putn(lsb, j);
+                        strbf_puts(lsb, "}");
+                        if(i < k-1) strbf_putc(lsb, ',');
+                    }
+                    strbf_puts(lsb, "]");
+                }
                 break;
             case gps_cfg_speed_unit:  // speed units, 0 = m/s 1 = km/h, 2 = knots
                 strbf_putn(lsb, c_gps_cfg.speed_unit);
