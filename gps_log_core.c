@@ -712,7 +712,7 @@ double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
     if (me->m_max_speed < me->m_speed) {
         me->m_max_speed = me->m_speed;
         struct tm tms;
-        getLocalTime(&tms, 0);
+        get_local_time(&tms);
         me->time_hour[0] = tms.tm_hour;
         me->time_min[0] = tms.tm_min;
         me->time_sec[0] = tms.tm_sec;
@@ -846,7 +846,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
             me->s_max_speed = me->avg_s;
             me->speed_bar_run[actual_run % NR_OF_BAR] = me->avg_s;
             struct tm tms;
-            getLocalTime(&tms, 0);
+            get_local_time(&tms);
             me->time_hour[0] = tms.tm_hour;
             me->time_min[0] = tms.tm_min;
             me->time_sec[0] = tms.tm_sec;
@@ -914,7 +914,7 @@ float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
         if (me->s_max_speed < me->avg_s) {
             me->s_max_speed = me->avg_s;
             struct tm tms;
-            getLocalTime(&tms, 0);
+            get_local_time(&tms);
             me->time_hour[0] = tms.tm_hour;
             me->time_min[0] = tms.tm_min;
             me->time_sec[0] = tms.tm_sec;
@@ -1026,7 +1026,7 @@ float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, str
             me->alfa_speed_max = me->alfa_speed;
             me->real_distance[0] = (int32_t)me->straight_dist_square;
             struct tm tms; 
-            getLocalTime(&tms, 0);
+            get_local_time(&tms);
             me->time_hour[0] = tms.tm_hour;
             me->time_min[0] = tms.tm_min;
             me->time_sec[0] = tms.tm_sec;
