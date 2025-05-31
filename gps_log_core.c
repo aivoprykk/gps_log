@@ -23,8 +23,7 @@
 static const char * TAG = "gps_data";
 //extern struct UBXMessage ubxMessage;
 
-#define NR_OF_BAR 42 // aantal bar in de bar_graph
-// #define GPS_TRACE_MSG_SAT 1
+#define NR_OF_BAR 42 // number of bars in the bar_graph
 
 // static const char *TAG = "GPS_data";
 typedef struct gps_p_context_s {
@@ -36,29 +35,27 @@ typedef struct gps_p_context_s {
 
     int32_t sec_gSpeed;      // for avg speed per second mm/s
     uint32_t delay_count_before_run;    // count loops to wait before incerment the run count
-    uint32_t run_count;      // counter for runs
-    uint32_t old_run_count;  // previous run counter
-    uint32_t alfa_count;     // counter for alfa
-    uint32_t old_alfa_count; // previous alfa counter
+    uint16_t run_count;      // counter for runs
+    uint16_t old_run_count;  // previous run counter
+    uint16_t alfa_count;     // counter for alfa
+    uint16_t old_alfa_count; // previous alfa counter
 
     bool velocity_0;      // min gemiddelde over 2 s < 1m/s
     bool velocity_5;      // min gemiddelde over 2 s = 1m/s
-    bool straight_course; // straight course or not
     bool dynamic_state;   // ubx setting dynamic model state: sea or portable here !!
 
-    double delta_heading;
-    double ref_heading;
-    
-    float buf_lat[BUFFER_ALFA];  // lat buffer counted by alfa
-    float buf_long[BUFFER_ALFA]; // long buffer counted by alfa
+    bool straight_course; // straight course or not
+    gps_point_t buf_alfa[BUFFER_ALFA]; // alfa points buffer
+    gps_point_t alfa_p1; // Point 1 for distance calculation
+    gps_point_t alfa_p2; // Point 2 for distance calculation
 
+    float delta_heading;
     float delta_dist;
     float heading;     // heding for alfa // = 0;
-    float old_heading; // old heading for alfa // = 0, 
-    float P1_lat;
-    float P1_long;
-    float P2_lat;
-    float P2_long;
+    float old_heading; // old heading for alfa // = 0
+    float heading_mean;
+    // Points for distance calculation
+
     SemaphoreHandle_t xMutex;
 } gps_p_context_t;
 
@@ -78,65 +75,114 @@ typedef struct gps_p_context_s {
     .straight_course = false, \
     .dynamic_state = 0, \
     .delta_heading = 0, \
-    .ref_heading = 0, \
-    .buf_lat = {0}, \
-    .buf_long = {0}, \
+    .heading_mean = 0, \
+    .buf_alfa = {{0}}, \
     .delta_dist = 0, \
     .heading = 0, \
     .old_heading = 0, \
-    .P1_lat = 0, \
-    .P1_long = 0, \
-    .P2_lat = 0, \
-    .P2_long = 0, \
+    .alfa_p1 = {0,0}, \
+    .alfa_p2 = {0,0}, \
     .xMutex = NULL \
 }
 gps_p_context_t lctx = GPS_P_CONTEXT_INIT;
 
+#define GPS_TRACE_MSG_SPEED_BY_DIST 1
+#define GPS_TRACE_MSG_SPEED_BY_TIME 1
+#define GPS_TRACE_MSG_SPEED_ALPHA 1
+#define GPS_STATS 1
+#if defined(GPS_STATS)
+static esp_timer_handle_t gps_timer = 0;
+static esp_err_t gps_data_printf();
+#if defined(GPS_MSG_CTX)
+static esp_err_t gps_p_context_printf(const gps_p_context_t *me);
+#endif
+#if defined(GPS_TRACE_MSG_SAT)
+static esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_BY_DIST)
+static esp_err_t gps_speed_by_dist_printf(const struct gps_speed_by_dist_s *me);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_BY_TIME)
+static esp_err_t gps_speed_by_time_printf(const struct gps_speed_by_time_s *me);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_ALPHA)
+esp_err_t gps_speed_by_alpha_printf(const struct gps_speed_alfa_s *me);
+#endif
+
+static void s(void*arg) {
+    gps_context_t *me = (gps_context_t *)arg;
+    printf("--- GPS periodic timer callback %lu ---\n", get_millis());
+    gps_data_printf(&me->Ublox);
+#if defined(GPS_MSG_CTX)
+    gps_p_context_printf(&lctx);
+#endif
+#if defined(GPS_TRACE_MSG_SAT)
+    gps_sat_info_printf(me);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_BY_DIST)
+    // gps_speed_by_dist_printf(&me->M100);
+    // gps_speed_by_dist_printf(&me->M250);
+    gps_speed_by_dist_printf(&me->M500);
+    // gps_speed_by_dist_printf(&me->M1852);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_BY_TIME)
+    // gps_speed_by_time_printf(&me->S2);
+    gps_speed_by_time_printf(&me->S10);
+    // gps_speed_by_time_printf(&me->S1800);
+    // gps_speed_by_time_printf(&me->S3600);
+#endif
+#if defined(GPS_TRACE_MSG_SPEED_ALPHA)
+    // gps_speed_by_alpha_printf(&me->A250);
+    gps_speed_by_alpha_printf(&me->A500);
+#endif
+    printf("--- End of GPS periodic timer callback ---\n");
+}
+#endif
+
+static inline int32_t al_buf_index(int32_t idx) {
+    return (idx + BUFFER_ALFA) % BUFFER_ALFA;
+}
+
+static inline int32_t buf_index(int32_t idx) {
+    return (idx + BUFFER_SIZE) % BUFFER_SIZE;
+}
+
 #define CONFIG_GPS_LOG_ENABLE_DEBUG 0
-#if (C_LOG_LEVEL < 1)
-esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
+#if defined(GPS_STATS) && defined(GPS_MSG_CTX)
+static esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
     printf("gps_p_context:{\n");
-    printf("dynamic_state: %d\n", me->dynamic_state);
-    printf("sec_gSpeed: %ld\n", me->sec_gSpeed);
-    printf("delay_count_before_run: %lu\n", me->delay_count_before_run);
-    printf("run_count: %lu\n", me->run_count);
-    printf("old_run_count: %lu\n", me->old_run_count);
-    printf("alfa_count: %lu\n", me->alfa_count);
+    printf("sec_gSpeed: %ld, ", me->sec_gSpeed);
+    printf("run_count: %lu, ", me->run_count);
+    printf("alfa_count: %lu, ", me->alfa_count);
     printf("old_alfa_count: %lu\n", me->old_alfa_count);
-    printf("velocity_0: %d\n", me->velocity_0);
-    printf("velocity_5: %d\n", me->velocity_5);
+    printf("heading: %.02f, ", me->heading);
+    printf("old_heading: %.02f, ", me->old_heading);
+    printf("delta_heading: %.02f, ", me->delta_heading);
+    printf("delta_dist: %.02f, ", me->delta_dist);
     printf("straight_course: %d\n", me->straight_course);
-    printf("old_heading: %.03f\n", me->old_heading);
-    printf("heading: %.03f\n", me->heading);
-    printf("delta_heading: %.03f\n", me->delta_heading);
-    printf("ref_heading: %.03f\n", me->ref_heading);
-    printf("delta_dist: %.03f\n", me->delta_dist);
-    printf("P1_lat: %.03f\n", me->P1_lat);
-    printf("P1_long: %.03f\n", me->P1_long);
-    printf("P2_lat: %.03f\n", me->P2_lat);
-    printf("P2_long: %.03f\n", me->P2_long);
-    printf("index_GPS: %ld\n", me->index_GPS);
+    printf("P1: {lat: %.02f, long: %.02f}\n", me->alfa_p1.latitude, me->alfa_p1.longitude);
+    printf("P2: {lat: %.02f, long: %.02f}\n", me->alfa_p2.latitude, me->alfa_p2.longitude);
+    printf("index_GPS: %ld, ", me->index_GPS);
     printf("index_sec: %ld\n", me->index_sec);
-    printf("_lat: ");
+    printf("buf_gSpeed: ");
     uint8_t i, j=me->index_GPS%BUFFER_SIZE;
-    if(j<20) j=20;
-    for (i = j-20; i < j; i++)
-        printf(" %.03f", me->buf_lat[i]);
-    printf("\n");
-    printf("_long: ");
-    for (i = j-20; i < j; i++)
-        printf(" %.03f", me->buf_long[i]);
-    printf("\n");
-    printf("_gSpeed: ");
-    for (i = j-20; i < j; i++)
-        printf(" %ld", me->buf_gSpeed[i]);
+    if(j<10) j=10;
+    for (i = j-10; i < j; i++) printf(" %ld", me->buf_gSpeed[i]);
     printf("\n");
     j=me->index_sec%BUFFER_SIZE;
-    if(j<20) j=20;
-    printf("\nbuf_secSpeed: ");
-    for (i = j-20; i < j; i++)
-        printf(" %hu", me->buf_secSpeed[i]);
+    if(j<10) j=10;
+    printf("buf_secSpeed: ");
+    for (i = j-10; i < j; i++) printf(" %hu", me->buf_secSpeed[i]);
     printf("\n");
+    j=me->index_GPS%BUFFER_SIZE;
+    if(j<10) j=10;
+    printf("buf_alfa: ");
+    for (i = j-10; i < j; i++) printf("{%.02f, %.02f},", me->buf_alfa[i].latitude, me->buf_alfa[i].longitude);
+    printf("\n");
+    printf("velocity_0: %d, ", me->velocity_0);
+    printf("velocity_5: %d, ", me->velocity_5);
+    printf("dynamic_state: %d, ", me->dynamic_state);
+    printf("delay_count_before_run: %lu\n", me->delay_count_before_run);
     printf("}\n");
     return ESP_OK;
 }
@@ -161,16 +207,17 @@ void init_gps_context_fields(gps_context_t *ctx) {
     init_gps_speed(&ctx->M250, 250);
     init_gps_speed(&ctx->M500, 500);
     init_gps_speed(&ctx->M1852, 1852);
-    //init_gps_speed(&ctx->M1852, 1852);
     init_gps_time(&ctx->S2, 2);
-    init_gps_time(&ctx->s2, 2);
     init_gps_time(&ctx->S10, 10);
-    init_gps_time(&ctx->s10, 10);  // for  stats GPIO_12 screens, reset possible !!
     init_gps_time(&ctx->S1800, 1800);
     init_gps_time(&ctx->S3600, 3600);
     init_alfa_speed(&ctx->A250, 250);
     init_alfa_speed(&ctx->A500, 500);
-    init_alfa_speed(&ctx->a500, 500);
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+    init_gps_time(&ctx->s2, 2);         // for  stats GPIO_12 screens, reset possible !!
+    init_gps_time(&ctx->s10, 10);        // for  stats GPIO_12 screens, reset possible !!
+    init_alfa_speed(&ctx->a500, 500);     // for  Alfa stats GPIO_12 screens, reset possible !!
+#endif
     if (ctx->ubx_device == NULL){
         ctx->ubx_device = ubx_config_new();
     }
@@ -179,6 +226,19 @@ void init_gps_context_fields(gps_context_t *ctx) {
     if(lctx.xMutex == NULL)
         lctx.xMutex = xSemaphoreCreateMutex();
     gps_user_cfg_init();
+#if defined(GPS_STATS)
+    const esp_timer_create_args_t gps_timer_args = {
+            .callback = &s,
+            .name = "gps_periodic",
+            .arg = ctx,
+    };
+    if(esp_timer_create(&gps_timer_args, &gps_timer)){
+        ESP_LOGE(TAG, "[%s] Failed to create periodic timer", __func__);
+    }
+    else if(gps_timer) {
+        esp_timer_start_periodic(gps_timer, SEC_TO_US(5));
+    }
+#endif
     ctx->Gps_fields_OK = 1;
 }
 
@@ -195,6 +255,12 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
         // log_config_delete(ctx->log_config);
         ctx->log_config = NULL;
     }
+#if defined(GPS_STATS)
+    if(gps_timer) {
+        esp_timer_stop(gps_timer);
+        esp_timer_delete(gps_timer);
+    }
+#endif
     if(lctx.xMutex != NULL){
         vSemaphoreDelete(lctx.xMutex);
         lctx.xMutex = NULL;
@@ -203,14 +269,13 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
     ctx->Gps_fields_OK = 0;
 }
 
-#if (C_LOG_LEVEL < 1)
-esp_err_t gps_data_printf(const struct gps_data_s *me) {
+#if defined(GPS_STATS)
+static esp_err_t gps_data_printf(struct gps_data_s *me) {
     printf("gps_data:{ ");
-    printf("id: %ld(%ld), ", lctx.index_GPS, lctx.index_GPS % BUFFER_SIZE);
     printf("run_start_time: %lu, ", me->run_start_time);
-    printf("run_distance: %.03f, ", me->run_distance);
-    printf("alfa_distance: %.03f, ", me->alfa_distance);
-    printf("total_distance: %.03f ", me->total_distance);
+    printf("run_distance: %.02f, ", me->run_distance);
+    printf("alfa_distance: %.02f, ", me->alfa_distance);
+    printf("total_distance: %.02f ", me->total_distance);
     printf("}\n");
     return ESP_OK;
 }
@@ -240,7 +305,7 @@ void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
             strbf_putul(&strbf, ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN || ubx->rtc_conf->nav_mode == UBX_MODE_SEA ? UBX_MODE_PORTABLE : UBX_MODE_PEDESTRIAN);
         }
         strbf_puts(&strbf, ", speed: ");
-        strbf_putf(&strbf, context->S2.avg_s);
+        strbf_putf(&strbf, context->S2.speed.speed);
         strbf_puts(&strbf, "mm/s\n");
         *strbf.cur = 0;
         WRITETXT(strbf.start, strbf.cur-strbf.start);
@@ -249,6 +314,31 @@ void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
 #else 
 void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {}
 #endif
+
+// rate counted speed buffer
+static void update_speed_buffer(gps_point_t * p, int32_t gSpeed) {
+    lctx.index_GPS++;
+    lctx.buf_gSpeed[buf_index(lctx.index_GPS)] = gSpeed;
+    lctx.buf_alfa[al_buf_index(lctx.index_GPS)].latitude = p->latitude;
+    lctx.buf_alfa[al_buf_index(lctx.index_GPS)].longitude = p->longitude;
+}
+
+static void update_sec_speed_buffer(int32_t gSpeed, uint8_t sample_rate) {
+    lctx.sec_gSpeed += gSpeed;
+    if (lctx.index_GPS % sample_rate == 0) {
+        lctx.index_sec++;
+        lctx.buf_secSpeed[buf_index(lctx.index_sec)] = lctx.sec_gSpeed / sample_rate;
+        lctx.sec_gSpeed = 0;
+    }
+}
+
+static void store_time(gps_run_t *run) {
+    struct tm tms;
+    get_local_time(&tms);
+    run->time.hour = tms.tm_hour;
+    run->time.minute = tms.tm_min;
+    run->time.second = tms.tm_sec;
+}
 
 // This function will always put 3 variables from the GPS into a global buffer:
 // doppler speed, lat and long. A global buffer was chosen because this data
@@ -266,12 +356,12 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
         if(lctx.dynamic_state == 0) {
             /// switch to dynamic_model "portable" as "pedestrian" only works with speed < 30 m/s (108kmh)
             /// and "sea" only works with speed < 25 m/s (90kmh)
-            if (((context->S2.avg_s > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
-                || (context->S2.avg_s > 23750 && ubx->rtc_conf->nav_mode == UBX_MODE_SEA))) { /// change over 24ms 85kmh
+            if (((context->S2.speed.speed > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
+                || (context->S2.speed.speed > 23750 && ubx->rtc_conf->nav_mode == UBX_MODE_SEA))) { /// change over 24ms 85kmh
                 lctx.dynamic_state = 1;
                 ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
             }
-            else if (context->S2.avg_s < 28500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
+            else if (context->S2.speed.speed < 28500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
                 /// switch to dynamic_model "pedestrian" below 30ms as "portable" is less accurate
                 lctx.dynamic_state = 1;
                 ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
@@ -280,11 +370,11 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
         }
         else if(lctx.dynamic_state == 1) {
             /// switch back to "pedestrian" below 27ms as "pedestrian" is more accurate
-            if(context->S2.avg_s < 27500 && (ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
+            if(context->S2.speed.speed < 27500 && (ubx->rtc_conf->nav_mode == UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
                 lctx.dynamic_state = 0;
                 ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
             }
-            else if (context->S2.avg_s > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change above 28ms 100kmh
+            else if (context->S2.speed.speed > 29500 && ubx->rtc_conf->nav_mode == UBX_MODE_PORTABLE) { /// change above 28ms 100kmh
                 lctx.dynamic_state = 0;
                 ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
 
@@ -299,10 +389,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     if(xSemaphoreTake(lctx.xMutex, 0) != pdTRUE)
         return ESP_FAIL;
     
-    lctx.index_GPS++;  // always increment index after updating all instances
-    lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE] = gSpeed;  // always store gSpeed in array range !
-    lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA] = latitude;
-    lctx.buf_long[lctx.index_GPS % BUFFER_ALFA] = longitude;
+    update_speed_buffer(&((gps_point_t){latitude, longitude}), gSpeed);
     // only add distance if reception is good, be careful sometimes sAcc<2
     // !!!****************************************************
     if ((ubxMessage->navPvt.numSV >= FILTER_MIN_SATS) && ((ubxMessage->navPvt.sAcc / 1000.0f) < FILTER_MAX_sACC)) {
@@ -313,20 +400,9 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     }
     // Store groundSpeed per second
     // !!******************************************************
-    lctx.sec_gSpeed += gSpeed;  // store at seconds interval for 30 min / 60 min average speed
-    if (lctx.index_GPS % sample_rate == 0) {  // modulus of index%sample rate
-        lctx.index_sec++;   // also lctx.index_sec may only be updated after instance update
-        lctx.buf_secSpeed[lctx.index_sec % BUFFER_SIZE] = lctx.sec_gSpeed / sample_rate; // otherwise overflow because lctx.buf_secSpeed[] is only up to 65535 (uint16) !!!!
-        lctx.sec_gSpeed = 0; // reset sec_gSpeed for calc next second average speed
-    }
+    update_sec_speed_buffer(gSpeed, sample_rate);
+
     xSemaphoreGive(lctx.xMutex);
-#if (C_LOG_LEVEL < 1)
-    if (lctx.index_GPS % sample_rate == 0 && gSpeed > STANDSTILL_DETECTION_MAX) {
-        gps_data_printf(me);
-        gps_p_context_printf(&lctx);
-    }
-#endif
-    //printf("Speed upadated gspeed: %"PRIu32" avgSpeed:%"PRIu32"\n", gSpeed, lctx.avg_gSpeed);
     return ESP_OK;
 }
 
@@ -340,19 +416,6 @@ struct gps_data_s *init_gps_data(struct gps_data_s *me) {
     return me;
 }
 
-// esp_err_t gps_data_serialize_json(const struct gps_data_s *data, cJSON *root) {
-//     cJSON *gps_data = cJSON_CreateObject();
-//     if (gps_data == NULL) {
-//         return ESP_ERR_NO_MEM;
-//     }
-//     cJSON_AddNumberToObject(gps_data, "delta_dist", data->delta_dist);
-//     cJSON_AddNumberToObject(gps_data, "total_distance", data->total_distance);
-//     cJSON_AddNumberToObject(gps_data, "run_distance", data->run_distance);
-//     cJSON_AddNumberToObject(gps_data, "alfa_distance", data->alfa_distance);
-//     cJSON_AddItemToObject(root, "gps_data", gps_data);
-//     return ESP_OK;
-// }
-
 // constructor for SAT_info
 struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
 #if (C_LOG_LEVEL < 3)
@@ -362,8 +425,9 @@ struct GPS_SAT_info *init_gps_sat_info(struct GPS_SAT_info *me) {
     me->index_SAT_info = 0;
     return me;
 }
-#if (C_LOG_LEVEL < 1)  && defined(GPS_TRACE_MSG_SAT)
-esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
+
+#if defined(GPS_STATS) && defined(GPS_TRACE_MSG_SAT)
+static esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
     printf("GPS_SAT_info:{ ");
     printf("mean_cno: %hu, ", me->mean_cno);
     printf("min_cno: %hhu, ", me->min_cno);
@@ -378,6 +442,7 @@ esp_err_t gps_sat_info_printf(const struct GPS_SAT_info *me) {
     return ESP_OK;
 }
 #endif
+
 // function to extract info out of NAV_SAT, and push it to array
 // For every NAV_SAT frame, the Mean CNO, the Max cno, the Min cno and the nr of
 // sats in the nav solution are stored Then, the means are calculated out of the
@@ -400,20 +465,22 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
     }
     if (me->nr_sats) {  // protection divide int/0 !!
         me->mean_cno = me->mean_cno / me->nr_sats;
-        me->sat_info.Mean_cno[me->index_SAT_info % NAV_SAT_BUFFER] = me->mean_cno;
-        me->sat_info.Max_cno[me->index_SAT_info % NAV_SAT_BUFFER] = me->max_cno;
-        me->sat_info.Min_cno[me->index_SAT_info % NAV_SAT_BUFFER] = me->min_cno;
-        me->sat_info.numSV[me->index_SAT_info % NAV_SAT_BUFFER] = me->nr_sats;
+        uint32_t idx = me->index_SAT_info % NAV_SAT_BUFFER;
+        me->sat_info.Mean_cno[idx] = me->mean_cno;
+        me->sat_info.Max_cno[idx] = me->max_cno;
+        me->sat_info.Min_cno[idx] = me->min_cno;
+        me->sat_info.numSV[idx] = me->nr_sats;
         me->mean_cno = 0;
         me->min_cno = 0;
         me->max_cno = 0;
         me->nr_sats = 0;
         if (me->index_SAT_info > NAV_SAT_BUFFER) {
             for (uint8_t i = 0; i < NAV_SAT_BUFFER; i++) {
-                me->mean_cno = me->mean_cno + me->sat_info.Mean_cno[(me->index_SAT_info - NAV_SAT_BUFFER + i) % NAV_SAT_BUFFER];
-                me->max_cno = me->max_cno + me->sat_info.Max_cno[(me->index_SAT_info - NAV_SAT_BUFFER + i) % NAV_SAT_BUFFER];
-                me->min_cno = me->min_cno + me->sat_info.Min_cno[(me->index_SAT_info - NAV_SAT_BUFFER + i) % NAV_SAT_BUFFER];
-                me->nr_sats = me->nr_sats + me->sat_info.numSV[(me->index_SAT_info - NAV_SAT_BUFFER + i) % NAV_SAT_BUFFER];
+                idx = (me->index_SAT_info - NAV_SAT_BUFFER + i) % NAV_SAT_BUFFER;
+                me->mean_cno = me->mean_cno + me->sat_info.Mean_cno[idx];
+                me->max_cno = me->max_cno + me->sat_info.Max_cno[idx];
+                me->min_cno = me->min_cno + me->sat_info.Min_cno[idx];
+                me->nr_sats = me->nr_sats + me->sat_info.numSV[idx];
             }
             me->mean_cno = me->mean_cno / NAV_SAT_BUFFER;
             me->max_cno = me->max_cno / NAV_SAT_BUFFER;
@@ -425,331 +492,248 @@ void push_gps_sat_info(struct GPS_SAT_info *me, struct nav_sat_s *nav_sat) {
             me->sat_info.Mean_numSV = me->nr_sats;
         }
         me->index_SAT_info++;
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_SAT)
-        gps_sat_info_printf(me);
-#endif
     }
 };
 
-void sort_display(double a[], uint8_t size) {
-    for (uint8_t i = 0; i < (size - 1); i++) {
-        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
-            if (a[o] > a[o + 1]) {
-                double t = a[o];
-                a[o] = a[o + 1];
-                a[o + 1] = t;
-            }
-        }
-    }
+#if defined(GPS_STATS)
+static void gps_run_printf(const struct gps_run_s * run) {
+    printf("Run: {time: %02d:%02d.%02d, avg_speed: %.02f, this_run: %hu}\n", run->time.hour, run->time.minute, run->time.second, run->avg_speed, run->this_run);
 }
-
-void sort_run(double a[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint16_t mean_cno[], uint8_t max_cno[], uint8_t min_cno[], uint8_t nrSats[], uint32_t runs[], uint8_t size) {
-    for (uint8_t i = 0; i < (size - 1); i++) {
-        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
-            if (a[o] > a[o + 1]) {
-                double t = a[o];
-                uint8_t b = hour[o];
-                uint8_t c = minute[o];
-                uint8_t d = seconde[o];
-                uint32_t e = runs[o];
-                uint16_t f = mean_cno[o];
-                uint8_t g = max_cno[o];
-                uint8_t h = min_cno[o];
-                uint8_t j = nrSats[o];
-                a[o] = a[o + 1];
-                hour[o] = hour[o + 1];
-                minute[o] = minute[o + 1];
-                seconde[o] = seconde[o + 1];
-                runs[o] = runs[o + 1];
-                mean_cno[o] = mean_cno[o + 1];
-                max_cno[o] = max_cno[o + 1];
-                min_cno[o] = min_cno[o + 1];
-                nrSats[o] = nrSats[o + 1];
-                a[o + 1] = t;
-                hour[o + 1] = b;
-                minute[o + 1] = c;
-                seconde[o + 1] = d;
-                runs[o + 1] = e;
-                mean_cno[o + 1] = f;
-                max_cno[o + 1] = g;
-                min_cno[o + 1] = h;
-                nrSats[o + 1] = j;
-            }
-        }
-    }
-}
-void sort_run_alfa(double a[], int32_t dis[], uint32_t message[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint32_t runs[], uint32_t samples[], uint8_t size) {
-    for (uint8_t i = 0; i < (size - 1); i++) {
-        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
-            if (a[o] > a[o + 1]) {
-                double t = a[o];
-                uint32_t v = dis[o];
-                uint32_t x = message[o];
-                uint8_t b = hour[o];
-                uint8_t c = minute[o];
-                uint8_t d = seconde[o];
-                uint32_t e = runs[o];
-                uint32_t f = samples[o];
-                a[o] = a[o + 1];
-                dis[o] = dis[o + 1];
-                message[o] = message[o + 1];
-                hour[o] = hour[o + 1];
-                minute[o] = minute[o + 1];
-                seconde[o] = seconde[o + 1];
-                runs[o] = runs[o + 1];
-                samples[o] = samples[o + 1];
-                a[o + 1] = t;
-                dis[o + 1] = v;
-                message[o + 1] = x;
-                hour[o + 1] = b;
-                minute[o + 1] = c;
-                seconde[o + 1] = d;
-                runs[o + 1] = e;
-                samples[o + 1] = f;
-            }
-        }
-    }
-}
-
-/*Instantie om gemiddelde snelheid over een bepaalde afstand te bepalen, bij een
- * nieuwe run opslaan hoogste snelheid van de vorige run*****************/
-struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint16_t afstand) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
 #endif
-    memset(me, 0, sizeof(struct gps_speed_by_dist_s));
-    me->m_set_distance = afstand;
-    return me;
+
+void sort_display(float a[], uint8_t size) {
+    // printf("[%s]\n", __func__);
+    for (uint8_t i = 0; i < (size - 1); i++) {
+        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
+            if (a[o] > a[o + 1]) {
+                float t = a[o]; a[o] = a[o + 1]; a[o + 1] = t;
+            }
+        }
+    }
 }
 
-#if (C_LOG_LEVEL < 1)  && defined(GPS_TRACE_MSG_SPEED)
-// esp_err_t gps_speed_serialize_json(struct gps_speed_by_dist_s *me, cJSON * root) {
-//     cJSON *gps_speed = cJSON_CreateObject();
-//     if (gps_speed == NULL) {
-//         return ESP_ERR_NO_MEM;
-//     }
-//     cJSON_AddNumberToObject(gps_speed, "m_set_distance", me->m_set_distance);
-//     cJSON_AddNumberToObject(gps_speed, "m_distance", me->m_distance);
-//     cJSON_AddNumberToObject(gps_speed, "m_distance_alfa", me->m_distance_alfa);
-//     cJSON_AddNumberToObject(gps_speed, "m_sample", me->m_sample);
-//     cJSON_AddNumberToObject(gps_speed, "m_speed", me->m_speed);
-//     cJSON_AddNumberToObject(gps_speed, "m_speed_alfa", me->m_speed_alfa);
-//     cJSON_AddNumberToObject(gps_speed, "m_max_speed", me->m_max_speed);
-//     cJSON_AddNumberToObject(gps_speed, "display_max_speed", me->display_max_speed);
-//     cJSON_AddNumberToObject(gps_speed, "old_run", me->old_run);
-//     cJSON_AddNumberToObject(gps_speed, "m_index", me->m_index);
-//     cJSON_AddNumberToObject(gps_speed, "m_Set_Distance", me->m_Set_Distance);
-//     cJSON * t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "time_hour", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->time_hour[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "time_min", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->time_min[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "time_sec", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->time_sec[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "this_run", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->this_run[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "avg_speed", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->avg_speed[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "m_Distance", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->m_Distance[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "nr_samples", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->nr_samples[i]));
-//     t = cJSON_CreateArray();
-//     cJSON_AddItemToObject(gps_speed, "message_nr", t);
-//     for (uint8_t i = 0; i < 10; i++)
-//         cJSON_AddItemToArray(t, cJSON_CreateNumber(me->message_nr[i]));
-//     return ESP_OK;    
-// }
+static void sort_run(gps_run_t runs[], uint16_t mean_cno[], uint8_t max_cno[], uint8_t min_cno[], uint8_t nr_sats[], uint8_t size) {
+    // printf("[%s]\n", __func__);
+    for (uint8_t i = 0; i < (size - 1); i++) {
+        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
+            if (runs[o].avg_speed > runs[o + 1].avg_speed) {
+                gps_run_t t = runs[o]; runs[o] = runs[o + 1]; runs[o + 1] = t;
+                if(mean_cno) {uint8_t f = mean_cno[o];mean_cno[o] = mean_cno[o + 1];mean_cno[o + 1] = f;}
+                if(max_cno) {uint8_t g = max_cno[o];max_cno[o] = max_cno[o + 1];max_cno[o + 1] = g;}
+                if(min_cno) {uint8_t h = min_cno[o];min_cno[o] = min_cno[o + 1];min_cno[o + 1] = h;}
+                if(nr_sats) {uint8_t j = nr_sats[o];nr_sats[o] = nr_sats[o + 1];nr_sats[o + 1] = j;}
+            }
+        }
+    }
+}
 
-esp_err_t gps_speed_str(const struct gps_speed_by_dist_s *me, char *buf, size_t size) {
-    snprintf(buf, size, "GPS_speed:{m_set_distance: %hu, m_distance: %ld, m_distance_alfa: %ld, m_sample: %lu, m_speed: %.03f, m_speed_alfa: %.03f, m_max_speed: %.03f, display_max_speed: %.03f, old_run: %lu, m_index: %ld, m_Set_Distance: %lu}",
-        me->m_set_distance, me->m_distance, me->m_distance_alfa, me->m_sample, me->m_speed, me->m_speed_alfa, me->m_max_speed, me->display_max_speed, me->old_run, me->m_index, me->m_Set_Distance);
-    snprintf(buf, size, "time_hour: {");
+static void sort_run_alfa(gps_run_t runs[], int32_t dist[], uint32_t nr_samples[], uint32_t message_no[], uint8_t size) {
+    // printf("[%s]\n", __func__);
+    for (uint8_t i = 0; i < (size - 1); i++) {
+        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
+            if (runs[o].avg_speed > runs[o + 1].avg_speed) {
+                gps_run_t t = runs[o]; runs[o] = runs[o + 1]; runs[o + 1] = t;
+                if(dist) {uint32_t f = dist[o]; dist[o] = dist[o + 1]; dist[o + 1] = f;}
+                if(nr_samples) {uint32_t g = nr_samples[o]; nr_samples[o] = nr_samples[o + 1]; nr_samples[o + 1] = g;}
+                if(message_no) {uint32_t h = message_no[o]; message_no[o] = message_no[o + 1]; message_no[o + 1] = h;}
+            }
+        }
+    }
+}
+
+#if defined(GPS_STATS)
+static esp_err_t gps_display_printf(const gps_display_t * me) {
     uint8_t i, j=10;
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%hhu ", me->time_hour[i]);
-    sniprintf(buf, size, "}\n");
-    snprintf(buf, size, "time_min: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%hhu ", me->time_min[i]);
-    sniprintf(buf, size, "}\n");
-    snprintf(buf, size, "time_sec: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%hhu ", me->time_sec[i]);
-    sniprintf(buf, size, "}\n");
-    snprintf(buf, size, "this_run: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%lu ", me->this_run[i]);
-    sniprintf(buf, size, "}\n");
-    snprintf(buf, size, "avg_speed: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%.03f ", me->avg_speed[i]);
-    snprintf(buf, size, "m_Distance: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%lu ", me->m_Distance[i]);
-    sniprintf(buf, size, "}\n");
-    snprintf(buf, size, "nr_samples: {");
-    for (i = 0; i < j; i++)
-        snprintf(buf, size, "%lu ", me->nr_samples[i]);
-    snprintf(buf, size, "}\n");
-    snprintf(buf, size, "message_nr: {");
-    for (uint8_t i = 0; i < 10; i++)
-        snprintf(buf, size, "%lu ", me->message_nr[i]);
-    snprintf(buf, size, "}\n");
-    snprintf(buf, size, "}");
+    printf("display:{\n");
+    printf("display_max_speed: %.02f, ", me->display_max_speed);
+    printf("display_last_max_speed: %.02f, ", me->display_last_run_max_speed);
+    printf("record: %d\n", me->record);
+    printf("display_speed: ");
+    for (i = 0; i < j; i++) printf("%.02f ", me->display_speed[i]);
+    printf("\n}");
     return ESP_OK;
 }
 
-esp_err_t gps_speed_printf(const struct gps_speed_by_dist_s *me) {
-    printf("GPS_speed:{\n");
-    printf("m_set_distance: %hu\n", me->m_set_distance);
-    printf("m_distance: %ld\n", me->m_distance);
-    printf("m_distance_alfa: %ld\n", me->m_distance_alfa);
-    printf("m_sample: %lu\n", me->m_sample);
-    printf("m_speed: %.03f\n", me->m_speed);
-    printf("m_speed_alfa: %.03f\n", me->m_speed_alfa);
-    printf("m_max_speed: %.03f\n", me->m_max_speed);
-    printf("display_max_speed: %.03f\n", me->display_max_speed);
-    printf("old_run: %lu\n", me->old_run);
-    printf("m_index: %ld\n", me->m_index);
-    printf("m_Set_Distance: %lu\n", me->m_Set_Distance);
-    printf("time_hour: ");
+esp_err_t gps_speed_printf(const gps_speed_t * me) {
     uint8_t i, j=10;
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_hour[i]);
-    printf("\n");
-    printf("time_min: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_min[i]);
-    printf("\n");
-    printf("time_sec: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_sec[i]);
-    printf("\n");
-    printf("this_run: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->this_run[i]);
-    printf("\n");
-    printf("avg_speed: ");
-    for (i = 0; i < j; i++)
-        printf("%.03f ", me->avg_speed[i]);
-    printf("\n");
-    printf("m_Distance: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->m_Distance[i]);
+    printf("speed:{\n");
+    printf("speed: %.02f, ", me->speed);
+    printf("speed_alfa: %.02f, ", me->speed_alfa);
+    printf("max_speed: %.02f\n", me->max_speed);
+    for (i = 0; i < j; i++) {
+        printf("%hhu ", i); gps_run_printf(&me->runs[i]);
+    }
+    gps_display_printf(&me->display);
+    printf("}\n");
+    return ESP_OK;
+}
+#endif
+
+#if defined(GPS_STATS) && defined(GPS_TRACE_MSG_SPEED_BY_DIST)
+static esp_err_t gps_speed_by_dist_printf(const struct gps_speed_by_dist_s *me) {
+    uint8_t i, j=10;
+    printf("speed_by_dist:{\n");
+    printf("m_set_dist: %hu, ", me->set_distance);
+    printf("m_dist: %ld, ", me->distance);
+    printf("m_dist_alfa: %ld, ", me->distance_alfa);
+    printf("m_sample: %lu, ", me->m_sample);
+    printf("m_index: %ld\n", me->m_index);
+    gps_speed_printf(&me->speed);
+    printf("dist: ");
+    for (i = 0; i < j; i++) printf("%lu ", me->dist[i]);
     printf("\n");
     printf("nr_samples: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->nr_samples[i]);
+    for (i = 0; i < j; i++) printf("%lu ", me->nr_samples[i]);
     printf("\n");
     printf("message_nr: ");
-    for (uint8_t i = 0; i <
-        10; i++)
-    printf("%lu ", me->message_nr[i]);
+    for (i = 0; i < j; i++) printf("%lu ", me->message_nr[i]);
     printf("\n");
     printf("}\n");
     return ESP_OK;
 }
 #endif
 
-void reset_distance_stats(struct gps_speed_by_dist_s *me) {
-    for (int i = 0; i < 10; i++) {
-        me->avg_speed[i] = 0;
-        me->display_speed[i] = 0;
+static void record_last_run(gps_speed_t * speed, uint16_t actual_run) {
+    // printf("[%s] %.01f %hu %hu\n", __func__, speed->max_speed, actual_run, speed->display.nr_display_last_run);
+    if ((actual_run != speed->display.nr_display_last_run) && (speed->max_speed > 3000.0f)) { // 3m/s
+        speed->display.nr_display_last_run = actual_run;
+        speed->display.display_last_run_max_speed = 0;
+    } 
+    else if (speed->display.display_last_run_max_speed < speed->max_speed) {
+        speed->display.display_last_run_max_speed = speed->max_speed;
     }
 }
 
-double update_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
-    assert(context);
-    // logger_config_t *config = context->config;
-    // assert(config);
-    ubx_config_t *ubx = context->ubx_device;
-    uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
-    uint32_t actual_run = context->run_count;
-    me->m_Set_Distance = M_TO_MM(me->m_set_distance) * sample_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
-    me->m_distance = me->m_distance + lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // the resolution of the distance is 0.1 mm
-                                                                                  // the max int32  is 2,147,483,647 mm eq 214,748.3647 meters eq ~214 kilometers !!
-    if ((lctx.index_GPS - me->m_index) >= BUFFER_SIZE) {  // controle buffer overflow
-        me->m_distance = 0;
-        me->m_index = lctx.index_GPS;
-    }
-    if (me->m_distance > me->m_Set_Distance) {
-        // Determine buffer m_index for the desired distance
-        while (me->m_distance > me->m_Set_Distance && (lctx.index_GPS - me->m_index) < BUFFER_SIZE) {
-            me->m_distance = me->m_distance - lctx.buf_gSpeed[me->m_index % BUFFER_SIZE];
-            me->m_distance_alfa = me->m_distance;
-            me->m_index++;
-        }
-        me->m_index--;
-        me->m_distance = me->m_distance + lctx.buf_gSpeed[me->m_index % BUFFER_SIZE];
-    }
+static inline void reset_runs_avg(gps_run_t runs[]) {
+    // printf("[%s]\n", __func__);
+    for(uint8_t i = 0; i < 10; i++) { runs[i].avg_speed = 0; }
+}
+
+static inline void reset_display_speed(float * arr) {
+    // printf("[%s]\n", __func__);
+    memset(arr, 0, 10 * sizeof(float));
+}
+
+static void update_display_avg_5runs(gps_run_t runs[], double *avg_5runs, bool mode) {
+    // printf("[%s]\n", __func__);
+    *avg_5runs = runs[(mode ? 0 : 5)].avg_speed;
+    for(uint8_t i = 6, j = mode ? 9 : 10; i < j; i++) { *avg_5runs += runs[i].avg_speed; }
+    *avg_5runs /= 5;
+}
+
+static inline void update_speed_array(float to[], gps_run_t runs[], uint8_t start, uint8_t end) {
+    // printf("[%s]\n", __func__);
+    for (uint8_t i = start; i < end; i++) to[i] = runs[i].avg_speed;
+}
+
+static void update_display_speed(float display_speed[], gps_run_t runs[], float max_speed) {
+    // printf("[%s]\n", __func__);
+    display_speed[5] = max_speed;
+    update_speed_array(display_speed, runs, 6, 10);
+    sort_display(display_speed, 10);
+}
+
+/// Instance to determine the average speed over a certain distance, 
+/// when a new run starts, save the highest speed of the previous run.
+struct gps_speed_by_dist_s *init_gps_speed(struct gps_speed_by_dist_s *me, uint16_t dist) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    memset(me, 0, sizeof(struct gps_speed_by_dist_s));
+    me->set_distance = dist;
+    return me;
+}
+
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+void reset_speed_stats(struct gps_speed_by_dist_s *me) {
+    reset_runs_avg(me->speed.runs);
+    reset_display_speed(me->speed.display.display_speed);
+}
+#endif
+
+void store_dist_speed(struct gps_speed_by_dist_s *me, uint32_t set_distance) {
+    // printf("[%s]\n", __func__);
     me->m_sample = lctx.index_GPS - me->m_index + 1;  // Check for the number of samples to avoid division by zero
-    if (lctx.index_GPS - me->m_index + 1) {
-        me->m_speed = (double)me->m_distance / me->m_sample;  // 10 samples op 1s aan 10mm/s = 100/10 = 10 mm /s
+    if (me->m_sample > 0) {
+        // Calculate the distance in mm, so multiply by 1000 and consider the sample_rate !!
+        me->speed.speed = me->distance / me->m_sample;  // 10 samples op 1s aan 10mm/s = 100/10 = 10 mm /s
     }
-    if (lctx.index_GPS - me->m_index) {
-        me->m_speed_alfa = (double)me->m_distance_alfa / (lctx.index_GPS - me->m_index);
+    if (lctx.index_GPS > me->m_index) {
+        // Calculate the speed based on the distance and the number of samples
+        me->speed.speed_alfa = me->distance_alfa / (lctx.index_GPS - me->m_index);
     }
-    if (me->m_distance < me->m_Set_Distance)
-        me->m_speed = 0;  // This is to prevent incorrect speed if the distance has not been reached yet!
-    if (me->m_sample >= BUFFER_SIZE)
-        me->m_speed = 0;  // This is to prevent incorrect speed if there is a BUFFER_SIZE overflow !!
-    if (me->m_speed == 0)
-        me->m_speed_alfa = 0;
-    if (me->m_max_speed < me->m_speed) {
-        me->m_max_speed = me->m_speed;
-        struct tm tms;
-        get_local_time(&tms);
-        me->time_hour[0] = tms.tm_hour;
-        me->time_min[0] = tms.tm_min;
-        me->time_sec[0] = tms.tm_sec;
-        me->this_run[0] = actual_run;  // om berekening te checken
-        me->avg_speed[0] = me->m_max_speed;
-        me->m_Distance[0] = me->m_distance;
+    if (me->distance < set_distance) me->speed.speed = 0;  // This is to prevent incorrect speed if the distance has not been reached yet!
+    if (me->m_sample >= BUFFER_SIZE) me->speed.speed = 0;  // This is to prevent incorrect speed if there is a BUFFER_SIZE overflow !!
+    if (me->speed.speed == 0) me->speed.speed_alfa = 0;
+}
+
+void store_dist_data(gps_context_t *context, struct gps_speed_by_dist_s *me) {
+    // printf("[%s] %.01f\n", __func__, me->speed.speed);
+    if (me->speed.max_speed < me->speed.speed) {
+        me->speed.max_speed = me->speed.speed;
+        me->speed.runs[0].this_run = context->run_count;  // om berekening te checken
+        me->speed.runs[0].avg_speed = me->speed.max_speed;
+        me->dist[0] = me->distance;
         me->nr_samples[0] = me->m_sample;
-        me->message_nr[0] = ubx->ubx_msg.count_nav_pvt;
-        if (me->m_max_speed > me->avg_speed[5]) {
-            me->display_speed[5] = me->m_max_speed;  // current run is faster than run[5] !!
-            for (i = 9; i > 5; i--) {  // copy other runs
-                me->display_speed[i] = me->avg_speed[i];
-            }
-            sort_display(me->display_speed, 10);
-        }
+        me->message_nr[0] = context->ubx_device->ubx_msg.count_nav_pvt;
+        store_time(&me->speed.runs[0]);  // store current time in the speed struct
+        printf("New max speed for this run %.02f\n", me->speed.speed);
+        // gps_run_printf(&me->speed.runs[0]);
     }
-    if (me->m_max_speed > me->avg_speed[9]){
-        me->display_max_speed = me->m_max_speed;  // update on the fly, dat klopt hier niet !!!
-        me->record = 1;
+    if (me->speed.max_speed > me->speed.runs[5].avg_speed) {
+        update_display_speed(me->speed.display.display_speed, me->speed.runs, me->speed.max_speed);
+    }
+    if (me->speed.max_speed > me->speed.runs[9].avg_speed){
+        me->speed.display.display_max_speed = me->speed.max_speed;  // update on the fly, dat klopt hier niet !!!
+        me->speed.display.record = 1;
         context->record = 1;
     }
     else
-        me->display_max_speed = me->avg_speed[9];
-    if ((actual_run != me->old_run) && (me->this_run[0] == me->old_run)) {  // opslaan hoogste snelheid van run + sorteren
-        sort_run_alfa(me->avg_speed, me->m_Distance, me->message_nr, me->time_hour, me->time_min, me->time_sec, me->this_run, me->nr_samples, 10);
-        for (i = 0; i < 10; i++) {
-            me->display_speed[i] = me->avg_speed[i];  // to make a direct update on the screen possible
-        }
-        me->avg_speed[0] = 0;
-        me->m_max_speed = 0;
-        me->record = 0;
+        me->speed.display.display_max_speed = me->speed.runs[9].avg_speed;
+}
+
+void reset_dist_data_on_a_new_run(gps_context_t *context, struct gps_speed_by_dist_s *me) {
+    // printf("[%s]\n", __func__);
+    sort_run_alfa(me->speed.runs, me->dist, me->message_nr, (uint32_t*)me->nr_samples, 10);
+    update_speed_array(me->speed.display.display_speed, me->speed.runs, 0, 10);
+    me->speed.runs[0].avg_speed = 0;
+    me->speed.max_speed = 0;
+    me->speed.display.record = 0;
+}
+
+static void move_distance_window(struct gps_speed_by_dist_s *me, uint32_t set_distance) {
+    // printf("[%s]\n", __func__);
+    // Determine buffer m_index for the desired distance
+    while (me->distance > set_distance && (lctx.index_GPS - me->m_index) < BUFFER_SIZE) {
+        me->distance = me->distance - lctx.buf_gSpeed[me->m_index % BUFFER_SIZE];
+        me->distance_alfa = me->distance;
+        me->m_index++;
     }
-    me->old_run = actual_run;
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_SPEED)
-    gps_speed_printf(me);
-#endif
-    return me->m_max_speed;
+    me->m_index--;
+    me->distance = me->distance + lctx.buf_gSpeed[me->m_index % BUFFER_SIZE];
+}
+
+float update_speed_by_distance(gps_context_t *context, struct gps_speed_by_dist_s *me) {
+    // printf("[%s]\n", __func__);
+    assert(context);
+    uint32_t set_distance = M_TO_MM(me->set_distance) * context->ubx_device->rtc_conf->output_rate;  // Note that m_set_distance should now be in mm, so multiply by 1000 and consider the sample_rate !!
+    me->distance = me->distance + lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // the resolution of the distance is 0.1 mm
+                                                                                  // the max int32  is 2,147,483,647 mm eq 214,748.3647 meters eq ~214 kilometers !!
+    if ((lctx.index_GPS - me->m_index) >= BUFFER_SIZE) {  // controle buffer overflow
+        me->distance = 0;
+        me->m_index = lctx.index_GPS;
+    }
+    if (me->distance > set_distance) {
+        move_distance_window(me, set_distance);  // move the distance window to the left
+    }
+    store_dist_speed(me, set_distance);
+    store_dist_data(context, me);  // store the data in the speed struct
+    if ((context->run_count != me->speed.old_run) && (me->speed.runs[0].this_run == me->speed.old_run)) {  // opslaan hoogste snelheid van run + sorteren
+        reset_dist_data_on_a_new_run(context, me);
+        me->speed.old_run = context->run_count;
+    }
+    record_last_run(&me->speed, context->run_count);
+    return me->speed.max_speed;
 }
 
 /*Instantie om gemiddelde snelheid over een bepaald tijdvenster te
@@ -762,314 +746,253 @@ struct gps_speed_by_time_s *init_gps_time(struct gps_speed_by_time_s *me, uint16
     me->time_window = tijdvenster;
     return me;
 }
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_TIME)
-esp_err_t gps_time_printf(const struct gps_speed_by_time_s *me) {
-    printf("GPS_time:{\n");
-    printf("time_window: %hu\n", me->time_window);
-    printf("avg_s: %.03f\n", me->avg_s);
-    printf("avg_s_sum: %ld\n", me->avg_s_sum);
-    printf("s_max_speed: %.03f\n", me->s_max_speed);
-    printf("display_max_speed: %.03f\n", me->display_max_speed);
-    printf("speed_bar_run_counter: %lu\n", me->speed_bar_run_counter);
-    printf("old_run: %lu\n", me->old_run);
-    printf( "reset_display_last_run: %lu\n", me->reset_display_last_run);
+#if defined(GPS_STATS) && defined(GPS_TRACE_MSG_SPEED_BY_TIME)
+static esp_err_t gps_speed_by_time_printf(const struct gps_speed_by_time_s *me) {
+    printf("gps_speed_by_time:{ ");
+    printf("time_window: %hu, ", me->time_window);
     printf("avg_5runs: %.03f\n", me->avg_5runs);
-    printf("time_hour: ");
-    uint8_t i, j=10;
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_hour[i]);
-    printf("\n");
-    printf("time_min: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_min[i]);
-    printf("\n");
-    printf("time_sec: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_sec[i]);
-    printf("\n");
-    printf("this_run: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->this_run[i]);
-    printf("\n");
-    printf("avg_speed: ");
-    for (i = 0; i < j; i++)
-        printf("%.03f ", me->avg_speed[i]);
-    printf("\n");
-    printf("display_speed: ");
-    for (i = 0; i < j; i++)
-        printf("%.03f ", me->display_speed[i]);
-    printf("\n");
-    printf("speed_bar_run: ");
-    for (i = 0; i < j; i++)
-        printf("%.03f ", me->speed_bar_run[i]);
-    printf("\n");
-    printf("Mean_cno: ");
-    for (i = 0; i < j; i++)
-        printf("%hu ", me->Mean_cno[i]);
-    printf("\n");
-    printf("Max_cno: ");
-    for (i = 0; i < j; i++)
-    printf("%hhu ", me->Max_cno[i]);
-    printf("\n");
-    printf("Min_cno: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->Min_cno[i]);
-    printf("\n");
-    printf("Mean_numSat: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->Mean_numSat[i]);
-    printf("\n");
+    gps_speed_printf(&me->speed);
+    // printf("avg_s_sum: %ld\n", me->avg_s_sum);
+    // printf("speed_bar_run_counter: %lu\n", me->speed_bar_run_counter);
+    // uint8_t i, j=10;
+    // printf("speed_bar_run: ");
+    // for (i = 0; i < j; i++)
+    //     printf("%.03f ", me->speed_bar_run[i]);
+    // printf("\n");
+    // printf("Mean_cno: ");
+    // for (i = 0; i < j; i++)
+    //     printf("%hu ", me->Mean_cno[i]);
+    // printf("\n");
+    // printf("Max_cno: ");
+    // for (i = 0; i < j; i++)
+    // printf("%hhu ", me->Max_cno[i]);
+    // printf("\n");
+    // printf("Min_cno: ");
+    // for (i = 0; i < j; i++)
+    //     printf("%hhu ", me->Min_cno[i]);
+    // printf("\n");
+    // printf("Mean_numSat: ");
+    // for (i = 0; i < j; i++)
+    //     printf("%hhu ", me->Mean_numSat[i]);
+    // printf("\n");
     printf("}\n");
     return ESP_OK;
 }
 #endif
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
 void reset_time_stats(struct gps_speed_by_time_s *me) {
-    for (int i = 0; i < 10; i++) {
-        me->avg_speed[i] = 0;
-        me->display_speed[i] = 0;
-    }
+    reset_runs_avg(me->speed.runs);
+    reset_display_speed(me->speed.display.display_speed);
     me->avg_5runs = 0;
 }
-
-float update_speed(gps_context_t *context, struct gps_speed_by_time_s *me) {
-    assert(context);
-    ubx_config_t *ubx = context->ubx_device;
-    uint8_t sample_rate = ubx->rtc_conf->output_rate, i;
-    uint32_t actual_run = context->run_count, time_window_delta = me->time_window * sample_rate;
-    if (time_window_delta < BUFFER_SIZE) {  // if time window is smaller than the sample_rate*BUFFER, use normal buffer
-        me->avg_s_sum += lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // always add gSpeed at every update
-        if (lctx.index_GPS >= time_window_delta) {
-            me->avg_s_sum = me->avg_s_sum - lctx.buf_gSpeed[(lctx.index_GPS - time_window_delta) % BUFFER_SIZE];  // once 10s is reached, subtract -10s from the sum again
-        }
-        me->avg_s = (double)me->avg_s_sum / me->time_window / sample_rate;
-        if (me->s_max_speed < me->avg_s) {
-            me->s_max_speed = me->avg_s;
-            me->speed_bar_run[actual_run % NR_OF_BAR] = me->avg_s;
-            struct tm tms;
-            get_local_time(&tms);
-            me->time_hour[0] = tms.tm_hour;
-            me->time_min[0] = tms.tm_min;
-            me->time_sec[0] = tms.tm_sec;
-            me->this_run[0] = actual_run;
-            me->avg_speed[0] = me->s_max_speed;
-            me->Mean_cno[0] = context->Ublox_Sat.sat_info.Mean_mean_cno;
-            me->Max_cno[0] = context->Ublox_Sat.sat_info.Mean_max_cno;
-            me->Min_cno[0] = context->Ublox_Sat.sat_info.Mean_min_cno;
-            me->Mean_numSat[0] = context->Ublox_Sat.sat_info.Mean_numSV;
-            // To update the average during the run, calculate the average of the unsorted array!
-            if (me->s_max_speed > me->avg_speed[5]) {
-                me->avg_5runs = 0;
-                for (i = 6; i < 10; i++) {
-                    me->avg_5runs += me->avg_speed[i];
-                }
-                me->avg_5runs += me->avg_speed[0];
-                me->avg_5runs /= 5;
-                me->display_speed[5] = me->s_max_speed;  // current run is faster than run[5] !!
-                for (i = 9; i > 5; i--) {  // copy other runs
-                    me->display_speed[i] = me->avg_speed[i];
-                }
-                sort_display(me->display_speed, 10);
-            }
-            if (me->s_max_speed > me->avg_speed[9]) {
-                me->display_max_speed = me->s_max_speed;  // update on the fly, that doesn't make sense here !!!
-                me->record = 1;
-                context->record = 1;
-            }
-            else
-                me->display_max_speed = me->avg_speed[9];
-        }
-        if ((actual_run != me->old_run) && (me->this_run[0] == me->old_run)) {  // sorting only if new max during this run !!!
-            sort_run(me->avg_speed, me->time_hour, me->time_min, me->time_sec, me->Mean_cno, me->Max_cno, me->Min_cno, me->Mean_numSat, me->this_run, 10);
-            if (me->s_max_speed > 5000)
-                me->speed_bar_run_counter++;  // changes SW5.51 min speed bar graph = 5 m/s
-            for (i = 0; i < 10; i++) {
-                me->display_speed[i] = me->avg_speed[i];  // to make a direct update on the screen possible
-            }
-            me->speed_bar_run[actual_run % NR_OF_BAR] = me->avg_speed[0];  // SW 5.5
-            me->avg_speed[0] = 0;
-            me->s_max_speed = 0;
-            me->avg_5runs = 0;
-            me->record = 0;
-            for (i = 5; i < 10; i++) {
-                me->avg_5runs += me->avg_speed[i];
-            }
-            me->avg_5runs /= 5;
-        }
-        if ((actual_run != me->reset_display_last_run) && (me->avg_s > 3000)) {
-            me->reset_display_last_run = actual_run;
-            me->display_last_run = 0;
-        } 
-        else if (me->display_last_run < me->s_max_speed) {
-            me->display_last_run = me->s_max_speed;
-        }
-        me->old_run = actual_run;
-        //return me->s_max_speed;
-    } else if (lctx.index_GPS % sample_rate == 0) {  // switch to seconds buffer, but only one update per second !!
-        me->avg_s_sum += lctx.buf_secSpeed[lctx.index_sec % BUFFER_SIZE];  // lctx.buf_secSpeed[BUFFER_SIZE] and lctx.index_sec
-        if (lctx.index_sec >= me->time_window) {
-            me->avg_s_sum = me->avg_s_sum - lctx.buf_secSpeed[(lctx.index_sec - me->time_window) % BUFFER_SIZE];  // vanaf 10s bereikt, terug -10s aftrekken van som
-        }
-        me->avg_s = (double)me->avg_s_sum / me->time_window;  // in de seconden array staat de gemiddelde van gspeed !!
-        // ESP_LOGI(TAG, "avg_s ");Serial.println(avg_s);
-        if (me->s_max_speed < me->avg_s) {
-            me->s_max_speed = me->avg_s;
-            struct tm tms;
-            get_local_time(&tms);
-            me->time_hour[0] = tms.tm_hour;
-            me->time_min[0] = tms.tm_min;
-            me->time_sec[0] = tms.tm_sec;
-            me->this_run[0] = actual_run;
-            me->avg_speed[0] = me->s_max_speed;  // s_max_speed niet resetten bij elke run !!!
-        }
-        if (me->s_max_speed > me->avg_speed[9])
-            me->display_max_speed = me->s_max_speed;  // update on the fly voor S1800 / S3600
-        else
-            me->display_max_speed = me->avg_speed[9];
-        if ((actual_run != me->old_run) && (me->this_run[0] == me->old_run)) {  // sorting only if new max during this run !!! 
-            // sort_run(avg_speed,time_hour,time_min,time_sec,this_run,10);
-            sort_run(me->avg_speed, me->time_hour, me->time_min, me->time_sec, me->Mean_cno, me->Max_cno, me->Min_cno, me->Mean_numSat, me->this_run, 10);
-            me->avg_speed[0] = 0;
-            me->s_max_speed = 0;
-            me->avg_5runs = 0;
-            for (i = 5; i < 10; i++) {
-                me->avg_5runs += me->avg_speed[i];
-            }
-            me->avg_5runs /= 5;
-        }
-        me->old_run = actual_run;
-        //return me->s_max_speed;
-    }
-    //}
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_TIME)
-    gps_time_printf(me);
 #endif
-    return me->s_max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
+
+void store_time_data(gps_context_t *context, struct gps_speed_by_time_s *me) {
+    // printf("[%s]\n", __func__);
+    if (me->speed.max_speed < me->speed.speed) {
+        me->speed.max_speed = me->speed.speed;
+        me->speed_bar_run[context->run_count % NR_OF_BAR] = me->speed.speed;
+        me->speed.runs[0].this_run = context->run_count;
+        me->speed.runs[0].avg_speed = me->speed.max_speed;
+        me->Mean_cno[0] = context->Ublox_Sat.sat_info.Mean_mean_cno;
+        me->Max_cno[0] = context->Ublox_Sat.sat_info.Mean_max_cno;
+        me->Min_cno[0] = context->Ublox_Sat.sat_info.Mean_min_cno;
+        me->Mean_numSat[0] = context->Ublox_Sat.sat_info.Mean_numSV;
+        store_time(&me->speed.runs[0]);  // store current time in the speed struct
+        printf("New max speed for this run %.02f\n", me->speed.speed);
+        // gps_run_printf(&me->speed.runs[0]);
+
+    }
+    // To update the average during the run, calculate the average of the unsorted array!
+    if (me->speed.max_speed > me->speed.runs[5].avg_speed) {
+        update_display_avg_5runs(me->speed.runs, &me->avg_5runs, true);
+        update_display_speed(me->speed.display.display_speed, me->speed.runs, me->speed.max_speed);
+    }
+    if (me->speed.max_speed > me->speed.runs[9].avg_speed) {
+        me->speed.display.display_max_speed = me->speed.max_speed;  // update on the fly, that doesn't make sense here !!!
+        me->speed.display.record = 1;
+        context->record = 1;
+    }
+    else
+        me->speed.display.display_max_speed = me->speed.runs[9].avg_speed;
 }
 
-struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, int alfa_radius) {
+void reset_time_data_on_new_run(gps_context_t *context, struct gps_speed_by_time_s *me) {
+    // printf("[%s]\n", __func__);
+    sort_run(me->speed.runs, me->Mean_cno, me->Max_cno, me->Min_cno, me->Mean_numSat, 10);
+    if (me->speed.max_speed > 5000.0f) me->speed_bar_run_counter++;  // changes SW5.51 min speed bar graph = 5 m/s
+    update_speed_array(me->speed.display.display_speed, me->speed.runs, 0, 10);  // update the first 5 runs
+    me->speed_bar_run[context->run_count % NR_OF_BAR] = me->speed.runs[0].avg_speed;  // SW 5.5
+    me->speed.runs[0].avg_speed = 0;
+    me->speed.max_speed = 0;
+    me->speed.display.record = 0;
+    update_display_avg_5runs(me->speed.runs, &me->avg_5runs, false);  // calculate the average of the last 5 runs
+
+}
+
+void store_avg_speed_by_time(struct gps_speed_by_time_s *me, uint32_t time_window_delta, uint8_t sample_rate) {
+    // printf("[%s] %lu\n", __func__, time_window_delta);
+    if (time_window_delta < BUFFER_SIZE) {  // if time window is smaller than the sample_rate*BUFFER, use normal buffer
+        me->avg_s_sum += lctx.buf_gSpeed[lctx.index_GPS % BUFFER_SIZE];  // always add gSpeed at every update
+        if (lctx.index_GPS >= time_window_delta) { // once 10s is reached, subtract -10s from the sum again
+            me->avg_s_sum = me->avg_s_sum - lctx.buf_gSpeed[(lctx.index_GPS - time_window_delta) % BUFFER_SIZE];
+        }
+        me->speed.speed = me->avg_s_sum / me->time_window / sample_rate;
+    } else if (lctx.index_GPS % sample_rate == 0) {  // switch to seconds buffer, but only one update per second !!
+         me->avg_s_sum += lctx.buf_secSpeed[lctx.index_sec % BUFFER_SIZE];  // lctx.buf_secSpeed[BUFFER_SIZE] and lctx.index_sec
+        if (lctx.index_sec >= me->time_window) { // once 10s is reached, subtract -10s from the sum again
+            me->avg_s_sum = me->avg_s_sum - lctx.buf_secSpeed[(lctx.index_sec - me->time_window) % BUFFER_SIZE];
+        }
+        me->speed.speed = me->avg_s_sum / me->time_window;  // in the seconds array is the average of gspeed !!
+    }
+}
+
+float update_speed_by_time(gps_context_t *context, struct gps_speed_by_time_s *me) {
+    // printf("[%s]\n", __func__);
+    assert(context);
+    ubx_config_t *ubx = context->ubx_device;
+    uint8_t sample_rate = ubx->rtc_conf->output_rate;
+    // uint32_t actual_run = context->run_count;
+    uint32_t time_window_delta = me->time_window * sample_rate;
+    store_avg_speed_by_time(me, time_window_delta, sample_rate);
+    store_time_data(context, me);  // store the run data if the speed is higher than the previous run
+    if ((context->run_count != me->speed.old_run) && (me->speed.runs[0].this_run == me->speed.old_run)) {  // sorting only if new max during this run !!!
+        reset_time_data_on_new_run(context, me);  // sort the runs and update the display speed}
+        me->speed.old_run = context->run_count;
+    }
+    record_last_run(&me->speed, context->run_count); 
+    return me->speed.max_speed;  // anders compiler waarschuwing control reaches end of non-void function [-Werror=return-type]
+}
+
+struct gps_speed_alfa_s *init_alfa_speed(struct gps_speed_alfa_s *me, uint16_t alfa_radius) {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
 #endif
     memset(me, 0, sizeof(struct gps_speed_alfa_s));
-    me->alfa_circle_square = alfa_radius * alfa_radius;  // to avoid sqrt calculation !!
+    me->set_alfa_dist = alfa_radius;
     return me;
 }
-    
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_ALPHA)
-esp_err_t alfa_speed_printf(const struct gps_speed_alfa_s *me) {
-    printf("alfa_speed:{\n");
-    printf("alfa_circle_square: %.03f\n", me->alfa_circle_square);
-    printf("straight_dist_square: %.03f\n", me->straight_dist_square);
-    printf("alfa_speed: %.03f\n", me->alfa_speed);
-    printf("alfa_speed_max: %.03f\n", me->alfa_speed_max);
-    printf("display_max_speed: %.03f\n", me->display_max_speed);
-    printf("old_alfa_count: %lu\n", me->old_alfa_count);
-    printf("real_distance: ");
+
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+void reset_alfa_stats(struct gps_speed_alfa_s *me) {
+    reset_runs_avg(me->speed.runs);
+}
+#endif
+
+#if defined(GPS_STATS) && defined(GPS_TRACE_MSG_SPEED_ALPHA)
+esp_err_t gps_speed_by_alpha_printf(const struct gps_speed_alfa_s *me) {
     uint8_t i, j=10;
-    for (i = 0; i < j; i++)
-        printf("%ld ", me->real_distance[i]);
-    printf("\n");
-    printf("time_hour: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_hour[i]);
-    printf("\n");
-    printf("time_min: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_min[i]);
-    printf("\n");
-    printf("time_sec: ");
-    for (i = 0; i < j; i++)
-        printf("%hhu ", me->time_sec[i]);
-    printf("\n");
-    printf("this_run: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->this_run[i]);
-    printf("\n");
-    printf("avg_speed: ");
-    for (i = 0; i < j; i++)
-        printf("%.03f ", me->avg_speed[i]);
-    printf("\n");
-    printf("message_nr: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->message_nr[i]);
+    printf("speed_by_alfa:{ ");
+    printf("set_alfa_dist: %hu, ", me->set_alfa_dist);
+    printf("straight_dist_square: %.03f, ", me->straight_dist_square);
+    printf("old_alfa_count: %lu\n", me->old_alfa_count);
+    gps_speed_printf(&me->speed);
+    printf("real_distance: ");
+    for (i = 0; i < j; i++) printf("%ld ", me->real_distance[i]);
     printf("\n");
     printf("alfa_distance: ");
-    for (i = 0; i < j; i++)
-        printf("%lu ", me->alfa_distance[i]);
+    for (i = 0; i < j; i++) printf("%lu ", me->alfa_distance[i]);
+    printf("\n");
+    printf("message_nr: ");
+    for (i = 0; i < j; i++) printf("%lu ", me->message_nr[i]);
     printf("\n");
     printf("}\n");
     return ESP_OK;
 }
 #endif
 
-// Attention, here the distance traveled must be less than 500 m! Therefore, 
-// an extra variable, m_speed_alfa, is provided in GPS_speed!!!
-float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, struct gps_speed_by_dist_s *M) {
-    assert(context);
-    ubx_config_t *ubx = context->ubx_device;
-    uint8_t sample_rate = ubx->rtc_conf->output_rate;
+#define EARTH_RADIUS_M 6371000.0
 
+#define USE_HAVERSINE
+#if defined(USE_HAVERSINE)
+double haversine(gps_point_t * p1, gps_point_t * p2) {
+    float dlat = DEG2RAD * (p2->latitude -  p1->latitude);
+    float dlon = DEG2RAD * (p2->longitude - p1->longitude);
+    double a = sin(dlat/2) * sin(dlat/2) +
+              cos(DEG2RAD *  p1->latitude) * cos(DEG2RAD *  p2->latitude) *
+              sin(dlon/2) * sin(dlon/2);
+    double c = 2 * atan2(sqrt(a), sqrt(1-a));
+    return EARTH_RADIUS_M * c;
+}
+#endif
+
+double straight_dist_square(gps_point_t * p1, gps_point_t * p2) {
     // now calculate the absolute distance alfa_speed::alfa_update(GPS_speed M)
     // between the starting point and the end point of the 250m distance,
     // if < 50m this is an alfa !!! note, this is calculated in meters,
     // therefore alfa_circle also in m !! was (M.m_index-1), should be (M.m_index+1)
+    float dlat = p1->latitude - p2->latitude;
+    float px = cos(DEG2RAD * p1->latitude) * (p1->longitude - p2->longitude);
+    return DEG_TO_METERS(POW_2(dlat) + POW_2(px));
+}
 
-    me->straight_dist_square =
-        (pow((lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA] - lctx.buf_lat[(M->m_index + 1) % BUFFER_ALFA]), 2) +
-         pow(cos(DEG2RAD * lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA]) * (lctx.buf_long[lctx.index_GPS % BUFFER_ALFA] - lctx.buf_long[(M->m_index + 1) % BUFFER_ALFA]), 2)
-         ) * 111195 * 111195;  // was 111120
-    if (me->straight_dist_square < me->alfa_circle_square) {
-        me->alfa_speed = M->m_speed_alfa;
-        if (M->m_sample >= BUFFER_ALFA)
-            me->alfa_speed = 0;  // overflow vermijden bij lage snelheden
-        if (me->alfa_speed > me->alfa_speed_max) {
-            me->alfa_speed_max = me->alfa_speed;
-            me->real_distance[0] = (int32_t)me->straight_dist_square;
-            struct tm tms; 
-            get_local_time(&tms);
-            me->time_hour[0] = tms.tm_hour;
-            me->time_min[0] = tms.tm_min;
-            me->time_sec[0] = tms.tm_sec;
-            me->this_run[0] = lctx.alfa_count;  // was alfa_count
-            me->avg_speed[0] = me->alfa_speed_max;
-            me->message_nr[0] = ubx->ubx_msg.count_nav_pvt;
-            me->alfa_distance[0] = M->m_distance_alfa / sample_rate;
-        }
+static void store_alfa_data(gps_context_t *context, struct gps_speed_alfa_s *me, uint32_t dist) {
+    // printf("[%s]\n", __func__);
+    if (me->speed.max_speed < me->speed.speed) {
+        me->speed.max_speed = me->speed.speed;
+        me->real_distance[0] = (int32_t)me->straight_dist_square;
+        me->speed.runs[0].this_run = lctx.alfa_count;  // was alfa_count
+        me->speed.runs[0].avg_speed = me->speed.max_speed;
+        me->message_nr[0] = context->ubx_device->ubx_msg.count_nav_pvt;
+        me->alfa_distance[0] = dist;
+        store_time(&me->speed.runs[0]);  // store current time in the speed struct
+        printf("New max speed for this run %.02f\n", me->speed.speed);
+        // gps_run_printf(&me->speed.runs[0]);
     }
-    // if((alfa_speed_max>0.0f)&(straight_dist_square>(alfa_circle_square*1.4))){ //alfa max gaat pas op 0 indien 500 m na de gijp, rechte afstand na de gijp
-    if (context->run_count != me->old_alfa_count) {
-        sort_run_alfa(me->avg_speed, me->real_distance, me->message_nr, me->time_hour, me->time_min, me->time_sec, me->alfa_distance, me->this_run, 10);
-        /* char tekst[20] = "";
-        char message[255] = "";
-        strcat(message, " alfa_speed ");
-        xdtostrf(M->m_set_distance, 3, 0, tekst);
-        strcat(message, "m ");
-        xdtostrf(me->alfa_speed_max * (context->rtc->RTC_calibration_speed), 4, 2, tekst);
-        strcat(message, tekst);
-        strcat(message, "\n"); */
-        // logERR(message);
-        me->alfa_speed = 0;
-        me->alfa_speed_max = 0;
-        me->record = 0;
-    }
-    me->old_alfa_count = context->run_count;
-    if (me->alfa_speed_max > me->avg_speed[9]) {
-        me->display_max_speed = me->alfa_speed_max;  // update on the fly, that's not correct here !!!
-        me->record = 1;
+    if (me->speed.max_speed > me->speed.runs[9].avg_speed) {
+        me->speed.display.display_max_speed = me->speed.max_speed;  // update on the fly, that's not correct here !!!
+        me->speed.display.record = 1;
         context->record = 1;
     }
     else
-        me->display_max_speed = me->avg_speed[9];
-#if (C_LOG_LEVEL < 1) && defined(GPS_TRACE_MSG_ALPHA)
-    alfa_speed_printf(me);
-#endif
-    return me->alfa_speed_max;
+        me->speed.display.display_max_speed = me->speed.runs[9].avg_speed;
 }
 
-void reset_alfa_stats(struct gps_speed_alfa_s *me) {
-    for (int i = 0; i < 10; i++) {
-        me->avg_speed[i] = 0;
+static void reset_alfa_data_on_new_run(struct gps_speed_alfa_s *me) {
+    // printf("[%s]\n", __func__);
+    sort_run_alfa(me->speed.runs, me->real_distance, me->message_nr, me->alfa_distance, 10);
+    me->speed.speed = 0;
+    me->speed.max_speed = 0;
+    me->speed.display.record = 0;
+}
+
+// Attention, here the distance traveled must be less than 500 m! Therefore, 
+// an extra variable, m_speed_alfa, is provided in GPS_speed!!!
+float update_alfa_speed(gps_context_t *context, struct gps_speed_alfa_s *me, struct gps_speed_by_dist_s *M) {
+    // printf("[%s]\n", __func__);
+    assert(context);
+#if defined(USE_HAVERSINE)
+    double straight_dist = haversine(
+        &lctx.buf_alfa[al_buf_index(lctx.index_GPS)], &lctx.buf_alfa[al_buf_index(M->m_index + 1)]
+    );
+#endif
+    me->straight_dist_square = straight_dist_square(&lctx.buf_alfa[al_buf_index(lctx.index_GPS)], &lctx.buf_alfa[al_buf_index(M->m_index + 1)]);
+    WLOG(TAG, "straight_distt: %.02f alfa_dist: %d\n", straight_dist, 50);
+    printf("straight_dist_square: %.02f alfa_dist: %d\n", me->straight_dist_square, POW_2(me->set_alfa_dist));
+#if defined(USE_HAVERSINE)
+    if (straight_dist < 50.0f) {
+#else
+    if (me->straight_dist_square < POW_2(me->set_alfa_dist)) {
+#endif
+        me->speed.speed = M->speed.speed_alfa;
+        if (M->m_sample >= BUFFER_ALFA) me->speed.speed = 0;  // avoid overflow at low speeds
+        store_alfa_data(context, me, M->distance_alfa / context->ubx_device->rtc_conf->output_rate);
     }
+    // if((alfa_speed_max>0.0f)&(straight_dist_square>(alfa_circle_square*1.4))){ //alfa max only resets to 0 if 500 m after the jibe, straight distance after the jibe
+    if (context->run_count != me->old_alfa_count) {
+        reset_alfa_data_on_new_run(me);
+        me->old_alfa_count = context->run_count;
+    }
+    record_last_run(&me->speed, context->run_count); 
+    return me->speed.max_speed;
+}
+
+static float unwrap_heading(float actual_heading, float *old_heading, float *delta_heading) {
+    // printf("[%s]\n", __func__);
+    if ((actual_heading - *old_heading) >  300.0f) *delta_heading -= 360.0f;
+    if ((actual_heading - *old_heading) < -300.0f) *delta_heading += 360.0f;
+    *old_heading = actual_heading;
+    return actual_heading + *delta_heading;
 }
 
 /* Calculation of the average heading over the last 10 seconds 
@@ -1078,53 +1001,71 @@ void reset_alfa_stats(struct gps_speed_alfa_s *me) {
 #define STRAIGHT_COURSE_MAX_DEV 10  // max angle deviation for straight ahead recognition (degrees)
 #define JIBE_COURSE_DEVIATION_MIN 50  // min angle deviation for jibe detection (degrees)
 #define TIME_DELAY_NEW_RUN 10U // uint time_delay_new_run
+static inline bool is_straight_course(float heading_diff) {
+    return (heading_diff < STRAIGHT_COURSE_MAX_DEV);
+}
+static inline bool detect_jibe(float heading_diff) {
+    return heading_diff > JIBE_COURSE_DEVIATION_MIN && lctx.straight_course;
+}
+
 uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
+    // printf("[%s]\n", __func__);
     assert(context);
     ubx_config_t *ubx = context->ubx_device;
     uint8_t sample_rate = ubx->rtc_conf->output_rate;
-    uint16_t speed_detection_min = SPEED_DETECTION_MIN;  // minimum snelheid 4m/s (14 km/h)voor snelheid display
+    // uint16_t speed_detection_min = SPEED_DETECTION_MIN;  // minimum snelheid 4m/s (14 km/h)voor snelheid display
     //uint16_t standstill_detection_max = STANDSTILL_DETECTION_MAX;  // maximum snelheid 1 m/s (3.6 km/h) voor stilstand herkenning, was 1.5 m/s change SW5.51
     // float headAcc=ubxMessage.navPvt.headingAcc/100000.0f;  // heading Accuracy wordt niet gebruikt ???
     // actual_heading=ubxMessage.navPvt.heading/100000.0f;
-    if ((actual_heading - lctx.old_heading) > 300.0f)
-        lctx.delta_heading = lctx.delta_heading - 360.0f;
-    if ((actual_heading - lctx.old_heading) < -300.0f)
-        lctx.delta_heading = lctx.delta_heading + 360.0f;
-    lctx.old_heading = actual_heading;
-    lctx.heading = actual_heading + lctx.delta_heading;
-    /* detect heading change over 15s is more than 40°, a new run is started !! ***************************************************************************/
-    //uint8_t mean_heading_time = MEAN_HEADING_TIME;  // tijd in s voor berekening gemiddelde heading
-    //uint8_t straight_course_max = STRAIGHT_COURSE_MAX_DEV;  // max hoek afwijking voor rechtdoor herkenning
-    //uint8_t course_deviation_min = JIBE_COURSE_DEVIATION_MIN;  // min hoek afwijking om gijp te detecteren, was 40
-    //context->heading_SD = lctx.heading;
+    
+    lctx.heading = unwrap_heading(actual_heading, &lctx.old_heading, &lctx.delta_heading);
+    
+    /// detect heading change over 15s is more than 40°, a new run is started
     uint16_t mean_heading_delta_time = MEAN_HEADING_TIME * sample_rate;
-    context->Mean_heading = context->Mean_heading * (mean_heading_delta_time - 1) / (mean_heading_delta_time) + lctx.heading / (mean_heading_delta_time);
-    /* detection stand still, more then 2s with velocity<1m/s **************************************************************************************************/
-    if (S2_speed > speed_detection_min)
-        lctx.velocity_5 = 1;  // min gemiddelde over 2 s = 1m/s
-    if ((S2_speed < STANDSTILL_DETECTION_MAX) && (lctx.velocity_5))
-        lctx.velocity_0 = 1;
-    else
-        lctx.velocity_0 = 0;
-    /* Nieuwe run gedetecteerd omwille stilstand *****************************************************************************************************************/
+    lctx.heading_mean = lctx.heading_mean * (mean_heading_delta_time - 1) / (mean_heading_delta_time) + lctx.heading / (mean_heading_delta_time);
+    
+    /// detection stand still, more then 2s with velocity < 1m/s 
+    if (S2_speed > SPEED_DETECTION_MIN) lctx.velocity_5 = 1;  // 2s with speed over 4m/s
+    if ((S2_speed < STANDSTILL_DETECTION_MAX) && (lctx.velocity_5)) lctx.velocity_0 = 1; // stopping detected, 2s with speed < 1 m/s
+    else lctx.velocity_0 = 0;
+    
+    /// New run detected due to standstill
     if (lctx.velocity_0) {
         lctx.velocity_5 = 0;
         lctx.delay_count_before_run = 0;
     }
-    /* Nieuwe run gedetecteerd omwille heading  change *****************************************************************************************************************/
-    // if(abs(Mean_heading-heading)<straight_course_max){straight_course=true;} // stabiele koers terug bereikt
-    if ((fabs(context->Mean_heading - lctx.heading) < STRAIGHT_COURSE_MAX_DEV) && (S2_speed > speed_detection_min)) {
-        lctx.straight_course = 1;
-    }  // stabiele koers terug bereikt, added min_speed SW5.51
-    if (((fabs(context->Mean_heading - lctx.heading) > JIBE_COURSE_DEVIATION_MIN) && (lctx.straight_course))) {
-        lctx.straight_course = 0;
+
+    /// New run detected due to heading change
+    float heading_diff = fabs(lctx.heading_mean - lctx.heading);
+    if(is_straight_course(heading_diff) && lctx.velocity_5) {
+        // printf("Straight course detected, heading_diff: %.02f\n", heading_diff);
+        lctx.straight_course = 1;  // straight course detected, set straight_course to true
+    }
+    if(detect_jibe(heading_diff)) {
+        printf("Jibe detected, heading_diff: %.02f\n", heading_diff);
+        lctx.straight_course = 0;  // jibe detected, straight course is false
         lctx.delay_count_before_run = 0;
         lctx.alfa_count++;  // jibe detection for alfa_indicator ....
     }
     lctx.delay_count_before_run++;
-    if (lctx.delay_count_before_run == (TIME_DELAY_NEW_RUN * sample_rate))
-        lctx.run_count++;
-    return lctx.run_count;
+    if (lctx.delay_count_before_run == (TIME_DELAY_NEW_RUN * sample_rate)) {
+        lctx.run_count = ++context->run_count;
+        WLOG(TAG, "=== Run finished, count changed to %hu ===", context->run_count);
+    }
+    printf("delay_count_before_run: %lu, start_cond: %u ...\n", lctx.delay_count_before_run, (TIME_DELAY_NEW_RUN * sample_rate));
+    printf("run_count: %hu, lctx.alfa_count: %hu, lctx.straight_course: %d\n", context->run_count, lctx.alfa_count, lctx.straight_course);
+    return context->run_count;
+}
+
+// #define USE_LONG_POINTS  // define this to use the long points for jibe detection, otherwise the short points are used
+static void update_jibe_reference_points(int32_t m_1, int32_t m_2, gps_point_t * buf, gps_point_t *p1, gps_point_t *p2) {
+    // printf("[%s]\n", __func__);
+    // this is the point at -250 m from the current position (speed extrapolation from -500m)
+    p1->latitude  = buf[m_1].latitude;
+    p1->longitude = buf[m_1].longitude;
+    // this is the point at -100 m from the current position (speed extrapolation from -250m)
+    p2->latitude  = buf[m_2].latitude;
+    p2->longitude = buf[m_2].longitude;
 }
 
 /* Here the current "alfa distance" is calculated based on 2 points for the jibe: 
@@ -1133,66 +1074,96 @@ uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S
  when point P1 is passed.
  */
 float alfa_indicator(gps_context_t *context, float actual_heading) {
+    // printf("[%s]\n", __func__);
     assert(context);
     ubx_config_t *ubx = context->ubx_device;
-    uint8_t sample_rate = ubx->rtc_conf->output_rate;
-    struct gps_speed_by_dist_s M250 = context->M250;
-    struct gps_speed_by_dist_s M100 = context->M100;
-    float P_lat, P_long, P_lat_heading, P_long_heading;
-    //,lambda_T,lambda_N,lambda,
-    float alfa_afstand;
+    // Update jibe reference points if needed
     if (lctx.alfa_count != lctx.old_alfa_count) {
-        context->Ublox.alfa_distance = 0;  // the distance traveled since the jibe detection 10*100.000/10.000=100 samples ?
-        lctx.P1_lat = lctx.buf_lat[M250.m_index % BUFFER_ALFA];  // this is the point at -250 m from the current position
-        lctx.P1_long = lctx.buf_long[M250.m_index % BUFFER_ALFA];
-        lctx.P2_lat = lctx.buf_lat[M100.m_index % BUFFER_ALFA];  // this is the point at -100 m from the current position (speed extrapolation from -250m)
-        lctx.P2_long = lctx.buf_long[M100.m_index % BUFFER_ALFA];
+        // the distance traveled since the jibe detection 10*100.000/10.000=100 samples ?
+        context->Ublox.alfa_distance = 0;
+        update_jibe_reference_points(
+#if defined(USE_LONG_POINTS)
+            al_buf_index(context->M500.m_index), 
+            al_buf_index(context->M250.m_index), 
+#else
+            al_buf_index(context->M250.m_index), 
+            al_buf_index(context->M100.m_index), 
+#endif
+            lctx.buf_alfa, 
+            &lctx.alfa_p1, 
+            &lctx.alfa_p2
+        );
+        lctx.old_alfa_count = lctx.alfa_count;
     }
-    lctx.old_alfa_count = lctx.alfa_count;
-    P_lat = lctx.buf_lat[lctx.index_GPS % BUFFER_ALFA];    // actuele positie lat
-    P_long = lctx.buf_long[lctx.index_GPS % BUFFER_ALFA];  // actuele positie long
-    /*
-    float corr_lat=111120;
-    float corr_long=111120*cos(DEG2RAD*buf_lat[lctx.index_GPS%BUFFER_ALFA]);
-    lambda_T=(lctx.P2_lat-lctx.P1_lat)*(P_lat-lctx.P1_lat)*corr_lat*corr_lat+(lctx.P2_long-lctx.P1_long)*(P_long-lctx.P1_long)*corr_long*corr_long;
-    lambda_N=
-    pow((lctx.P2_lat-lctx.P1_lat)*corr_lat,2)+pow((lctx.P2_long-lctx.P1_long)*corr_long,2);
-    lambda=lambda_T/lambda_N;
-    alfa_afstand=sqrt(pow((P_lat-lctx.P1_lat-lambda*(lctx.P2_lat-lctx.P1_lat))*corr_lat,2)+pow((P_long-lctx.P1_long-lambda*(lctx.P2_long-lctx.P1_long))*corr_long,2));
-    */
-    P_lat_heading = lctx.buf_lat[(lctx.index_GPS - 2 * sample_rate) % BUFFER_ALFA];  //-2s positie lat cos(ubxMessage.navPvt.heading*PI/180.0f/100000.0f)*111120+P_lat;
-                            //was eerst sin,extra punt berekenen heading, berekenen met afstand/lengte graad !!
-    P_long_heading = lctx.buf_long[(lctx.index_GPS - 2 * sample_rate) % BUFFER_ALFA];  //-2s positie long sin(ubxMessage.navPvt.heading*PI/180.0f/100000.0f)*111120*cos(DEG2RAD*P_lat)+P_long;
-                            //berekenen met afstand/lengte graad!!
-    context->alfa_exit = dis_point_line(lctx.P1_long, lctx.P1_lat, P_long, P_lat, P_long_heading, P_lat_heading);  //
-    alfa_afstand = dis_point_line(P_long, P_lat, lctx.P1_long, lctx.P1_lat, lctx.P2_long, lctx.P2_lat);
-    return alfa_afstand;  // current perpendicular distance relative to the line P2-P1, may be max 50m for a valid alfa !!
+    // Current position
+    int32_t idx_cur = al_buf_index(lctx.index_GPS);
+    gps_point_t cur = { lctx.buf_alfa[idx_cur].latitude, lctx.buf_alfa[idx_cur].longitude};
+
+    // Position 2 seconds ago
+    int32_t idx_prev = al_buf_index(lctx.index_GPS - (2 * ubx->rtc_conf->output_rate));
+    gps_point_t prev = {lctx.buf_alfa[idx_prev].latitude, lctx.buf_alfa[idx_prev].longitude};
+
+    // -2s position lat
+    // was previously sin, calculate extra point for heading, calculate using distance/degree length!!
+    // cos(ubxMessage.navPvt.heading*PI/180.0f/100000.0f) * 111120 + P_lat;
+    // -2s position long
+    // calculate using distance/degree length!!
+    // sin(ubxMessage.navPvt.heading*PI/180.0f/100000.0f) * 111120 * cos(DEG2RAD*P_lat) + P_long;
+    // m500 cur pos dist from line( current pos, pos 2s ago ), this is the point at 225-275 m from the current position
+    context->alfa_exit = dist_point_line(&lctx.alfa_p1, &cur, &prev);
+    // pos 2s ago dist from line( current pos, m250 pos )
+    float alfa_dist = dist_point_line(&cur, &lctx.alfa_p1, &lctx.alfa_p2);
+    printf("[%s] alfa_exit: %.02f, alfa_dist: %.2f\n", __func__, context->alfa_exit, alfa_dist);
+
+    return alfa_dist;  // current perpendicular distance relative to the line P2-P1, may be max 50m for a valid alfa !!
 }
 
-/* Calculates distance from point with corr lat/long to line which passes points lat_1/long_1 and lat_2/long_2 **************************************/
-float dis_point_line(float long_act, float lat_act, float long_1, float lat_1, float long_2, float lat_2) {
-    float corr_lat = 111195;  // meters per latitude degree
-    float corr_long = 111195 * cos(DEG2RAD * lat_act);  // meters per longitude degree, this is a function of latitude !
-    float lambda_T, lambda_N, lambda, alfa_distance;
-    lambda_T = (lat_2 - lat_1) * (lat_act - lat_1) * corr_lat * corr_lat +
-               (long_2 - long_1) * (long_act - long_1) * corr_long * corr_long;
-    lambda_N = pow((lat_2 - lat_1) * corr_lat, 2) + pow((long_2 - long_1) * corr_long, 2);
-    lambda = lambda_T / lambda_N;
-    alfa_distance = sqrt(
-        pow((lat_act - lat_1 - lambda * (lat_2 - lat_1)) * corr_lat, 2) +
-        pow((long_act - long_1 - lambda * (long_2 - long_1)) * corr_long, 2));
+/*
+/// previous code for dist_point_line, not used anymore, but kept for reference
+float dist_point_line(float long_act, float lat_act, float long_1, float lat_1, float long_2, float lat_2) {
+    float corr_lat=111120;
+    float corr_long=111120*cos(DEG2RAD*buf_alfa[lctx.index_GPS%BUFFER_ALFA]);
+    lambda_T=(lctx.P2_lat-lctx.P1_lat)*(P_lat-lctx.P1_lat)*corr_lat*corr_lat+(lctx.P2_long-lctx.P1_long)*(P_long-lctx.P1_long)*corr_long*corr_long;
+    lambda_N=pow((lctx.P2_lat-lctx.P1_lat)*corr_lat,2)+pow((lctx.P2_long-lctx.P1_long)*corr_long,2);
+    lambda=lambda_T/lambda_N;
+    alfa_dist=sqrt(
+        pow((P_lat-lctx.P1_lat-lambda*(lctx.P2_lat-lctx.P1_lat))*corr_lat,2)+
+        pow((P_long-lctx.P1_long-lambda*(lctx.P2_long-lctx.P1_long))*corr_long,2));
+}
+*/
+
+/// Calculates distance from point with corr lat/long to line which passes points lat_1/long_1 and lat_2/long_2
+float dist_point_line(gps_point_t * act,  gps_point_t * p1, gps_point_t * p2) {
+    // printf("[%s]\n", __func__);
+    float corr_lat = METERS_PER_LATITUDE_DEGREE;
+    float corr_long = corr_lat * cos(DEG2RAD * act->latitude);  // meters per longitude degree, this is a function of latitude !
+    float dlat = p2->latitude - p1->latitude;
+    float dlong = p2->longitude - p1->longitude;
+    float dlat_act = act->latitude - p1->latitude;
+    float dlong_act = act->longitude - p1->longitude;
+    float lambda_T = ((dlat * dlat_act) * POW_2(corr_lat)) + ((dlong * dlong_act) * POW_2(corr_long));
+    float lambda_N = POW_2(dlat * corr_lat) + POW_2(dlong * corr_long);
+    float lambda = 0.0f;
+    if (lambda_N != 0.0f) {
+        lambda = lambda_T / lambda_N;
+    } else {
+        // Avoid division by zero; return a large value or 0 as appropriate
+        return 0.0f;
+    }
+    float alfa_distance = sqrtf(
+        POW_2((dlat_act - lambda * dlat) * corr_lat) +
+        POW_2((dlong_act - lambda * dlong) * corr_long));
     return alfa_distance;
 }
-/*Heading tov reference***********************************************************************************
 
- ref_heading=atan2(((P1_long-P2_long)*corr_long),((P1_lat-P2_lat)*corr_lat))*180/PI;//dit
- is getest en werkt correct, wel +180° tov werkelijke richting
- if(ref_heading<0)ref_heading=ref_heading+360;//atan2 geeft een waarde terug
- tussen -PI en +PI radialen !
- delta_heading=(int)(actual_heading-ref_heading*180/PI)%360;//due to P1-P2, this
- is the opposite direction from travelling ! if(delta_heading>180)
+/*Heading tov reference***********************************************************************************
+// Calculate reference heading (in degrees) from P2 to P1.
+// This is tested and works correctly, but is +180° compared to the actual direction.
+ref_heading = atan2(((P1_long - P2_long) * corr_long), ((P1_lat - P2_lat) * corr_lat)) * 180 / PI;
+ if(ref_heading<0)ref_heading=ref_heading+360; // atan2 returns a value between -PI and +PI radians.
+ delta_heading=(int)(actual_heading-ref_heading*180/PI)%360; // due to P1-P2, this is the opposite direction from travelling ! if(delta_heading>180)
  delta_heading=delta_heading-360; if(delta_heading<-180)
  delta_heading=delta_heading+360;
  */
 
-#endif
+#endif // UBLOX_ENABLED

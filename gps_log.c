@@ -89,8 +89,10 @@ static int8_t set_time(float time_offset) {
 #endif
     struct ubx_config_s *ubx_dev = gps->ubx_device;
     nav_pvt_t *pvt = &ubx_dev->ubx_msg.navPvt;
-    if (!pvt->numSV || pvt->year < 2023) { // no sats or no valid time
-        return 0;
+    if (!pvt->numSV) return 0;
+    if (pvt->year < 2023) { // no valid time
+        WLOG(TAG, "[%s] error... %hhu || %hu-%hhu-%hhu\n", __func__, pvt->numSV, pvt->year, pvt->month, pvt->day);
+        // return 0;
     }
     uint32_t millis = get_millis();
     if (gps->time_set && millis < gps->next_time_sync) { // time already set and not time to sync
@@ -273,7 +275,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         else
                             ++push_ok_count;
                         #endif
-                        gps->run_count = new_run_detection(gps, FROM_100K(nav_pvt->heading), gps->S2.avg_s);
+                        new_run_detection(gps, FROM_100K(nav_pvt->heading), gps->S2.speed.speed);
                         gps->alfa_window = alfa_indicator(gps, FROM_100K(nav_pvt->heading));
                         // new run detected, reset run distance
                         if (gps->run_count != gps->old_run_count) {
@@ -288,19 +290,21 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                             }
                         }
                         gps->old_run_count = gps->run_count;
-                        update_distance(gps, &gps->M100);
-                        update_distance(gps, &gps->M250);
-                        update_distance(gps, &gps->M500);
-                        update_distance(gps, &gps->M1852);
-                        update_speed(gps, &gps->S2);
-                        update_speed(gps, &gps->s2);
-                        update_speed(gps, &gps->S10);
-                        update_speed(gps, &gps->s10);
-                        update_speed(gps, &gps->S1800);
-                        update_speed(gps, &gps->S3600);
+                        update_speed_by_distance(gps, &gps->M100);
+                        update_speed_by_distance(gps, &gps->M250);
+                        update_speed_by_distance(gps, &gps->M500);
+                        update_speed_by_distance(gps, &gps->M1852);
+                        update_speed_by_time(gps, &gps->S2);
+                        update_speed_by_time(gps, &gps->S10);
+                        update_speed_by_time(gps, &gps->S1800);
+                        update_speed_by_time(gps, &gps->S3600);
                         update_alfa_speed(gps, &gps->A250, &gps->M250);
                         update_alfa_speed(gps, &gps->A500, &gps->M500);
-                        update_alfa_speed(gps, &gps->a500, &gps->M500);
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+                        update_speed_by_time(gps, &gps->s2);         // for  stats GPIO_12 screens, reset possible !!
+                        update_speed_by_time(gps, &gps->s10);        // for  stats GPIO_12 screens, reset possible !!
+                        update_alfa_speed(gps, &gps->a500, &gps->M500);     // for  Alfa stats GPIO_12 screens, reset possible !!
+#endif
                     }
                 }
                 break;

@@ -464,23 +464,23 @@ void session_results_m(const gps_context_t *context, struct gps_speed_by_dist_s 
     strbf_inits(&sb, &(message[0]), 255);
     const char * units = speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit];
     for (int i = 9; i > 4; i--) {
-        f3_to_char(M->avg_speed[i] * c_gps_cfg.speed_calibration, tekst);
+        f3_to_char(M->speed.runs[i].avg_speed * c_gps_cfg.speed_calibration, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, units);
         strbf_putc(&sb, ' ');
-        time_to_char_hms(M->time_hour[i], M->time_min[i], M->time_sec[i], tekst);
+        time_to_char_hms(M->speed.runs[i].time.hour, M->speed.runs[i].time.minute, M->speed.runs[i].time.second, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Distance: ");
-        f2_to_char(MM_TO_M(M->m_Distance[i]) / context->ubx_device->rtc_conf->output_rate, tekst);
+        f2_to_char(MM_TO_M(M->dist[i]) / context->ubx_device->rtc_conf->output_rate, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, M->message_nr[i]);
         strbf_puts(&sb, " Samples: ");
         strbf_putl(&sb, M->nr_samples[i]);
         strbf_puts(&sb, " Run: ");
-        strbf_putl(&sb, M->this_run[i]);
+        strbf_putl(&sb, M->speed.runs[i].this_run);
         strbf_puts(&sb, " M");
-        strbf_putl(&sb, M->m_set_distance);
+        strbf_putl(&sb, M->set_distance);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
         DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);
@@ -515,14 +515,14 @@ void session_results_s(const gps_context_t *context, struct gps_speed_by_time_s 
     // errorfile.close();
     // appendFile(SD,filenameERR,message);
     for (int i = 9; i > 4; i--) {
-        f3_to_char(S->avg_speed[i] * c_gps_cfg.speed_calibration, tekst);
+        f3_to_char(S->speed.runs[i].avg_speed * c_gps_cfg.speed_calibration, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, units);
         strbf_putc(&sb, ' ');
-        time_to_char_hms(S->time_hour[i], S->time_min[i], S->time_sec[i], tekst);
+        time_to_char_hms(S->speed.runs[i].time.hour, S->speed.runs[i].time.minute, S->speed.runs[i].time.second, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Run:");
-        strbf_putl(&sb, S->this_run[i]);
+        strbf_putl(&sb, S->speed.runs[i].this_run);
         strbf_puts(&sb, " S");
         strbf_putl(&sb, S->time_window);
         if (rtc_config.msgout_sat) {
@@ -552,7 +552,7 @@ void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s 
     const char * units = speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit];
     for (int i = 9; i > 4; i--) {
         strbf_reset(&sb);
-        f3_to_char(A->avg_speed[i] * c_gps_cfg.speed_calibration, tekst);
+        f3_to_char(A->speed.runs[i].avg_speed * c_gps_cfg.speed_calibration, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, units);
         strbf_putc(&sb, ' ');
@@ -561,14 +561,14 @@ void session_results_alfa(const gps_context_t *context, struct gps_speed_alfa_s 
         strbf_puts(&sb, " m ");
         strbf_putl(&sb, A->alfa_distance[i]);
         strbf_puts(&sb, " m ");
-        time_to_char_hms(A->time_hour[i], A->time_min[i], A->time_sec[i], tekst);
+        time_to_char_hms(A->speed.runs[i].time.hour, A->speed.runs[i].time.minute, A->speed.runs[i].time.second, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Run: ");
-        strbf_putl(&sb, A->this_run[i]);
+        strbf_putl(&sb, A->speed.runs[i].this_run);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, A->message_nr[i]);
         strbf_puts(&sb, " Alfa");
-        strbf_putl(&sb, M->m_set_distance);
+        strbf_putl(&sb, A->set_alfa_dist);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
         DLOG(TAG, "[%s] %s\n", __FUNCTION__, sb.start);

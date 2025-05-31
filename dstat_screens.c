@@ -8,8 +8,8 @@
 // extern struct context_rtc_s m_context_rtc;
 extern struct gps_context_s * gps;
 
-static inline float get_avg(const double *b) {
-    return (float) ((b[9] + b[8] + b[7] + b[6] + b[5]) / 5) * c_gps_cfg.speed_calibration;
+static inline float get_avg(const gps_run_t *b) {
+    return (float) ((b[9].avg_speed + b[8].avg_speed + b[7].avg_speed + b[6].avg_speed + b[5].avg_speed) / 5) * c_gps_cfg.speed_calibration;
 }
 static inline float get_spd(float b) {
     return (float) b * c_gps_cfg.speed_calibration;
@@ -23,176 +23,176 @@ size_t get_display_fld_str(const screen_f_t *fld, char *p1, size_t (*fn)(double,
     }
 }
 static float s_display_max(struct gps_speed_by_time_s * s) {
-    return get_spd((float)s->display_speed[9]);
+    return get_spd((float)s->speed.display.display_speed[9]);
 }
 static float s_display_last(struct gps_speed_by_time_s * s) {
-    return get_spd((float)s->display_last_run);
+    return get_spd((float)s->speed.display.display_last_run_max_speed);
 }
 
 static float S10_display_last(void) {
-    return get_spd((float)gps->S10.display_last_run);
+    return get_spd((float)gps->S10.speed.display.display_last_run_max_speed);
 }
 static float S10_display_max(void) {
-    return get_spd((float)gps->S10.display_speed[9]);
+    return get_spd((float)gps->S10.speed.display.display_speed[9]);
 }
 static float S10_s_max(void) {
-    return get_spd((float)gps->S10.s_max_speed);
+    return get_spd((float)gps->S10.speed.max_speed);
 }
 static float S10_display_avg(void) {
     return get_spd((float)gps->S10.avg_5runs);
 }
 static size_t S10_display_max_time(char *p1) {
-    return time_to_char_hm(gps->S10.time_hour[9], gps->S10.time_min[9], p1);
+    return time_to_char_hm(gps->S10.speed.runs[9].time.hour, gps->S10.speed.runs[9].time.minute, p1);
 }
 static float S10_r1_display(void) {
-    return get_spd((float)gps->S10.display_speed[9]);
+    return get_spd((float)gps->S10.speed.display.display_speed[9]);
 }
 static float S10_r2_display(void) {
-    return get_spd((float)gps->S10.display_speed[8]);
+    return get_spd((float)gps->S10.speed.display.display_speed[8]);
 }
 static float S10_r3_display(void) {
-    return get_spd((float)gps->S10.display_speed[7]);
+    return get_spd((float)gps->S10.speed.display.display_speed[7]);
 }
 static float S10_r4_display(void) {
-    return get_spd((float)gps->S10.display_speed[6]);
+    return get_spd((float)gps->S10.speed.display.display_speed[6]);
 }
 static float S10_r5_display(void) {
-    return get_spd((float)gps->S10.display_speed[5]);
+    return get_spd((float)gps->S10.speed.display.display_speed[5]);
 }
 static float S2_display_last(void) {
-    return get_spd((float)gps->S2.display_last_run);
+    return get_spd((float)gps->S2.speed.display.display_last_run_max_speed);
 }
 static float S2_display_max(void) {
-    return get_spd((float)gps->S2.display_speed[9]);
+    return get_spd((float)gps->S2.speed.display.display_speed[9]);
 }
 static float S2_r1_display(void) {
-    return get_spd((float)gps->S2.display_speed[9]);
+    return get_spd((float)gps->S2.speed.display.display_speed[9]);
 }
 static float S2_r2_display(void) {
-    return get_spd((float)gps->S2.display_speed[8]);
+    return get_spd((float)gps->S2.speed.display.display_speed[8]);
 }
 static size_t S2_display_max_time(char *p1) {
-    return time_to_char_hm(gps->S2.time_hour[9], gps->S2.time_min[9], p1);
+    return time_to_char_hm(gps->S2.speed.runs[9].time.hour, gps->S2.speed.runs[9].time.minute, p1);
 }
 static float S1800_display_last(void) {
-    return get_spd((float)gps->S1800.display_last_run);
+    return get_spd((float)gps->S1800.speed.display.display_last_run_max_speed);
 }
 static float S1800_display_max(void) {
-    return get_spd((float)gps->S1800.display_max_speed);
+    return get_spd((float)gps->S1800.speed.display.display_max_speed);
 }
 static float S1800_s_max(void) {
-    return get_spd((float)gps->S1800.avg_s);
+    return get_spd((float)gps->S1800.speed.speed);
 }
 static size_t S1800_display_max_time(char *p1) {
-    return time_to_char_hm(gps->S1800.time_hour[9], gps->S1800.time_min[9], p1);
+    return time_to_char_hm(gps->S1800.speed.runs[9].time.hour, gps->S1800.speed.runs[9].time.minute, p1);
 }
 static float S1800_r1_display(void) {
-    return get_spd((float)gps->S1800.display_speed[9]);
+    return get_spd((float)gps->S1800.speed.display.display_speed[9]);
 }
 static float S1800_r2_display(void) {
-    return get_spd((float)gps->S1800.display_speed[8]);
+    return get_spd((float)gps->S1800.speed.display.display_speed[8]);
 }
 static float S3600_display_last(void) {
-    return get_spd((float)gps->S3600.display_last_run);
+    return get_spd((float)gps->S3600.speed.display.display_last_run_max_speed);
 }
 static float S3600_display_max(void) {
-    return get_spd((float)gps->S3600.display_max_speed);
+    return get_spd((float)gps->S3600.speed.display.display_max_speed);
 }
 static float S3600_s_max(void) {
-    return get_spd(gps->S3600.avg_s);
+    return get_spd(gps->S3600.speed.speed);
 }
 static size_t S3600_display_max_time(char *p1) {
-    return time_to_char_hm(gps->S3600.time_hour[9], gps->S3600.time_min[9], p1);
+    return time_to_char_hm(gps->S3600.speed.runs[9].time.hour, gps->S3600.speed.runs[9].time.minute, p1);
 }
 static float M250_display_last(void) {
-    return get_spd((float)gps->M250.display_speed[0]);
+    return get_spd((float)gps->M250.speed.display.display_speed[0]);
 }
 static float M250_display_max(void) {
-    return get_spd((float)gps->M250.display_max_speed);
+    return get_spd((float)gps->M250.speed.display.display_max_speed);
 }
 static size_t M250_display_max_time(char *p1) {
-    return time_to_char_hm(gps->M250.time_hour[9], gps->M250.time_min[9], p1);
+    return time_to_char_hm(gps->M250.speed.runs[9].time.hour, gps->M250.speed.runs[9].time.minute, p1);
 }
 static float M250_r1_display(void) {
-    return get_spd((float)gps->M250.display_speed[9]);
+    return get_spd((float)gps->M250.speed.display.display_speed[9]);
 }
 static float M250_r2_display(void) {
-    return get_spd((float)gps->M250.display_speed[8]);
+    return get_spd((float)gps->M250.speed.display.display_speed[8]);
 }
 static float M500_display_last(void) {
-    return get_spd((float)gps->M500.display_speed[0]);
+    return get_spd((float)gps->M500.speed.display.display_speed[0]);
 }
 static float M500_display_max(void) {
-    return get_spd((float)gps->M500.display_max_speed);
+    return get_spd((float)gps->M500.speed.display.display_max_speed);
 }
 static float M500_m_max(void) {
-    return get_spd((float)gps->M500.m_max_speed);
+    return get_spd((float)gps->M500.speed.max_speed);
 }
 static size_t M500_display_max_time(char *p1) {
-    return time_to_char_hm(gps->M500.time_hour[9], gps->M500.time_min[9], p1);
+    return time_to_char_hm(gps->M500.speed.runs[9].time.hour, gps->M500.speed.runs[9].time.minute, p1);
 }
 static float M500_r1_display(void) {
-    return get_spd((float)gps->M500.display_speed[9]);
+    return get_spd((float)gps->M500.speed.display.display_speed[9]);
 }
 static float M500_r2_display(void) {
-    return get_spd((float)gps->M500.display_speed[8]);
+    return get_spd((float)gps->M500.speed.display.display_speed[8]);
 }
 static float M1852_display_last(void) {
-    return get_spd((float)gps->M1852.display_speed[0]);
+    return get_spd((float)gps->M1852.speed.display.display_speed[0]);
 }
 static float M1852_display_max(void) {
-    return get_spd((float)gps->M1852.display_speed[9]);
+    return get_spd((float)gps->M1852.speed.display.display_speed[9]);
 }
 static float M1852_m_max(void) {
-    return get_spd((float)gps->M1852.m_max_speed);
+    return get_spd((float)gps->M1852.speed.max_speed);
 }
 static size_t M1852_display_max_time(char *p1) {
-    return time_to_char_hm(gps->M1852.time_hour[9], gps->M1852.time_min[9], p1);
+    return time_to_char_hm(gps->M1852.speed.runs[9].time.hour, gps->M1852.speed.runs[9].time.minute, p1);
 }
 static float M1852_r1_display(void) {
-    return get_spd((float)gps->M1852.display_speed[9]);
+    return get_spd((float)gps->M1852.speed.display.display_speed[9]);
 }
 static float M1852_r2_display(void) {
-    return get_spd((float)gps->M1852.display_speed[8]);
+    return get_spd((float)gps->M1852.speed.display.display_speed[8]);
 }
 static float M100_display_last(void) {
-    return get_spd((float)gps->M100.display_speed[0]);
+    return get_spd((float)gps->M100.speed.display.display_speed[0]);
 }
 static float M100_display_max(void) {
-    return get_spd((float)gps->M100.display_max_speed);
+    return get_spd((float)gps->M100.speed.display.display_max_speed);
 }
 static size_t M100_display_max_time(char *p1) {
-    return time_to_char_hm(gps->M100.time_hour[9], gps->M100.time_min[9], p1);
+    return time_to_char_hm(gps->M100.speed.runs[9].time.hour, gps->M100.speed.runs[9].time.minute, p1);
 }
 static float A500_display_last(void) {
-    return get_spd((float)gps->A500.alfa_speed);
+    return get_spd((float)gps->A500.speed.speed);
 }
 static float A500_display_max(void) {
-    return get_spd((float)gps->A500.display_max_speed);
+    return get_spd((float)gps->A500.speed.display.display_max_speed);
 }
 static float A500_a_max(void) {
-    return get_spd((float)gps->A500.alfa_speed_max);
+    return get_spd((float)gps->A500.speed.max_speed);
 }
 static float A500_display_avg(void) {
-    return get_avg(gps->A500.avg_speed);
+    return get_avg(gps->A500.speed.runs);
 }
 static size_t A500_display_max_time(char *p1) {
-    return time_to_char_hm(gps->A500.time_hour[9], gps->A500.time_min[9], p1);
+    return time_to_char_hm(gps->A500.speed.runs[9].time.hour, gps->A500.speed.runs[9].time.minute, p1);
 }
 static float A500_r1_display(void) {
-    return get_spd((float)gps->A500.avg_speed[9]);
+    return get_spd(gps->A500.speed.runs[9].avg_speed);
 }
 static float A500_r2_display(void) {
-    return get_spd((float)gps->A500.avg_speed[8]);
+    return get_spd((float)gps->A500.speed.runs[8].avg_speed);
 }
 static float A500_r3_display(void) {
-    return get_spd((float)gps->A500.avg_speed[7]);
+    return get_spd((float)gps->A500.speed.runs[7].avg_speed);
 }
 static float A500_r4_display(void) {
-    return get_spd((float)gps->A500.avg_speed[6]);
+    return get_spd((float)gps->A500.speed.runs[6].avg_speed);
 }
 static float A500_r5_display(void) {
-    return get_spd((float)gps->A500.avg_speed[5]);
+    return get_spd((float)gps->A500.speed.runs[5].avg_speed);
 }
 static float distance(void) {
     return (float)MM_TO_KM(gps->Ublox.total_distance);

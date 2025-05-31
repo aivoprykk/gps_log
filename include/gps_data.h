@@ -10,7 +10,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-#define DEG2RAD 0.0174532925  // is PI/180 !!!
+#define DEG2RAD 0.0174532925f  // is PI/180 !!!
 #define BUFFER_SIZE CONFIG_GPS_BUFFER_SIZE
 #define BUFFER_ALFA CONFIG_GPS_ALFA_BUFFER_SIZE
 #define NAV_SAT_BUFFER CONFIG_GPS_NAV_SAT_BUFFER_SIZE
@@ -18,6 +18,16 @@ extern "C" {
 #define FILTER_MAX_sACC 2   
 #define NR_OF_BARS 42         // number of bars in the bar graph
 
+typedef struct gps_point_s {
+    float latitude;  // Latitude in degrees
+    float longitude; // Longitude in degrees
+} gps_point_t;
+
+typedef struct gps_tm_s {
+    int hour;      // Hour of the day (0-23)
+    int minute;    // Minute of the hour (0-59)
+    int second;    // Second of the minute (0-59)
+} gps_tm_t;
 
 // Description of the GPS data processing class
 struct gps_data_s {
@@ -80,156 +90,123 @@ struct GPS_SAT_info {
     .nr_sats = 0 \
 }
 
-struct nav_sat_s;
+typedef struct gps_run_s {
+    struct gps_tm_s time;
+    float avg_speed;
+    uint16_t this_run;
+} gps_run_t;
 
-/**
- * @brief GPS average speed over a certain distance configuration structure 
-*/
-// Calculating the average speed over a certain distance, sample rate has no influence !!****************/
-struct gps_speed_by_dist_s {
-    float m_speed;           // speed over the desired distance
-    float m_speed_alfa;      // alpha speed over the desired distance
-    double m_max_speed;      // maximum speed of the last run
-    float display_max_speed; // to update on the fly on display
-    double avg_speed[10];
-    double display_speed[10]; // speed for update on the fly on display
-    int32_t m_Distance[10];
-    uint8_t time_hour[10];
-    uint8_t time_min[10];
-    uint8_t time_sec[10];
-    uint32_t this_run[10];
-    uint32_t nr_samples[10];
-    uint32_t message_nr[10];
-    int32_t m_index;
-    int32_t m_distance;       // current distance, the next larger distance than "distance", e.g. 100m
-    uint32_t m_distance_alfa; // the next smaller distance than "distance", used for alpha calculation
-    uint16_t m_set_distance;  // here the instance distance is set, e.g. 100m, 200m, 500m....
-    uint32_t m_Set_Distance;  // here in the correct resolution, multiplied by 1000 and sample_rate !!
-    uint32_t m_sample;
-    //private
-    uint32_t old_run;
-    uint8_t record;
-};
-
-#define GPS_SPEED_DEFAULT_CONFIG() { \
-    .m_speed = 0, \
-    .m_speed_alfa = 0, \
-    .m_max_speed = 0, \
-    .display_max_speed = 0, \
-    .m_Distance = {0}, \
-    .time_hour = {0}, \
-    .time_min = {0}, \
-    .time_sec = {0}, \
-    .this_run = {0}, \
-    .nr_samples = {0}, \
-    .message_nr = {0}, \
-    .m_index = 0, \
-    .m_distance = 0, \
-    .m_distance_alfa = 0, \
-    .m_set_distance = 0, \
-    .m_Set_Distance = 0, \
-    .m_sample = 0, \
-    .old_run = 0, \
-    .record = 0 \
+#define GPS_RUN_DEFAULT_CONFIG() { \
+    .time = {0, 0, 0}, \
+    .avg_speed = 0, \
+    .this_run = 0 \
 }
 
-/**
- * @brief GPS average speed over a time window configuration structure
-*/
+typedef struct gps_display_s {
+    float display_speed[10];
+    float display_max_speed; // to update on the fly on display
+    float display_last_run_max_speed; // to update on the fly on display
+    uint16_t nr_display_last_run;
+    uint8_t record;
+} gps_display_t;
+
+#define GPS_DISPLAY_DEFAULT_CONFIG() { \
+    .display_speed = {0}, \
+    .display_max_speed = 0, \
+    .display_last_run_max_speed = 0, \
+    .nr_display_last_run = 0, \
+    .record = 0 \
+}
+typedef struct gps_speed_s {
+    gps_run_t runs[10];
+    float speed;           // speed over the desired distance
+    float speed_alfa;      // alpha speed over the desired distance
+    float max_speed;      // maximum speed of the last run
+    gps_display_t display; // display speed for the last 10 runs
+    uint16_t old_run;
+} gps_speed_t;
+
+#define GPS_SPEED_DEFAULT_CONFIG() { \
+    .runs = {GPS_RUN_DEFAULT_CONFIG()}, \
+    .speed = 0, \
+    .speed_alfa = 0, \
+    .max_speed = 0, \
+    .display = GPS_DISPLAY_DEFAULT_CONFIG(), \
+    .old_run = 0 \
+}
+
+struct gps_speed_by_dist_s {
+    uint16_t set_distance;  // here the instance distance is set, e.g. 100m, 200m, 500m....
+    gps_speed_t speed;      // speed over the desired distance
+    int32_t dist[10];
+    int32_t nr_samples[10];
+    uint32_t message_nr[10];
+    int32_t distance;       // current distance, the next larger distance than "distance", e.g. 100m
+    uint32_t distance_alfa; // the next smaller distance than "distance", used for alpha calculation
+    int32_t m_index;
+    int32_t m_sample;
+};
+
+#define GPS_SPEED_BY_DIST_DEFAULT_CONFIG() { \
+    .set_distance = 0, \
+    .speed = GPS_SPEED_DEFAULT_CONFIG(), \
+    .dist = {0}, \
+    .nr_samples = {0}, \
+    .message_nr = {0}, \
+    .distance = 0, \
+    .distance_alfa = 0, \
+    .m_index = 0, \
+    .m_sample = 0 \
+}
+
 // calculation of average speed over a time window (2s, 10s, 1800s...)
-// ****************************************************************
 struct gps_speed_by_time_s {
-    double avg_s;             // speed over the desired time window
+    uint16_t time_window;     // time window in seconds, e.g. 2s, 10s, 1800s...
+    gps_speed_t speed;        // speed over the desired time window
     int32_t avg_s_sum;
-    double s_max_speed;       // maximum speed of the last run
-    float display_max_speed;  // to update on the fly on display
-    float display_last_run;
-    double avg_speed[10];
-    double display_speed[10]; // speed for update on the fly on display
     double avg_5runs;         // speed average for 5 runs over the desired time window
-    uint8_t time_hour[10];
-    uint8_t time_min[10];
-    uint8_t time_sec[10];
-    uint32_t this_run[10];
-    uint16_t time_window; 
-    uint32_t speed_bar_run_counter;
-    double speed_bar_run[50];       //for bar_graph
+    uint16_t speed_bar_run_counter;
+    float speed_bar_run[50];       //for bar_graph
     uint16_t Mean_cno[10];
     uint8_t Max_cno[10];
     uint8_t Min_cno[10];
     uint8_t Mean_numSat[10];
     //private
-    uint32_t old_run;
-    uint32_t reset_display_last_run;
-    uint8_t record;
 }; 
 
-#define GPS_TIME_DEFAULT_CONFIG { \
-    .avg_s = 0, \
-    .avg_s_sum = 0, \
-    .s_max_speed = 0, \
-    .display_max_speed = 0, \
-    .display_last_run = 0, \
-    .avg_speed = {0}, \
-    .display_speed = {0}, \
-    .avg_5runs = 0, \
-    .time_hour = {0}, \
-    .time_min = {0}, \
-    .time_sec = {0}, \
-    .this_run = {0}, \
+#define GPS_SPEED_BY_TIME_DEFAULT_CONFIG() { \
     .time_window = 0, \
+    .speed = GPS_SPEED_DEFAULT_CONFIG(), \
+    .avg_s_sum = 0, \
+    .avg_5runs = 0, \
     .speed_bar_run_counter = 0, \
     .speed_bar_run = {0}, \
     .Mean_cno = {0}, \
     .Max_cno = {0}, \
     .Min_cno = {0}, \
     .Mean_numSat = {0}, \
-    .old_run = 0, \
-    .reset_display_last_run = 0, \
-    .record = 0 \
 }
 
-/**
- * @brief GPS Calculation of the alpha speed configuration structure 
-*/
 // Calculation of the alpha speed, instance of gps_speed_by_dist_s 250 /500 can be used + circle diameter (normally 50 m)
 struct gps_speed_alfa_s {
+    uint16_t set_alfa_dist;
+    gps_speed_t speed;        // speed over the desired distance
     double straight_dist_square;
-    double alfa_speed;
-    double alfa_speed_max;
-    float display_max_speed;   // to update on the fly on display
-    double alfa_circle_square;
-    double avg_speed[10];
     int32_t real_distance[10];
-    uint8_t time_hour[10];
-    uint8_t time_min[10];
-    uint8_t time_sec[10];
-    uint32_t this_run[10];
-    uint32_t message_nr[10];
     uint32_t alfa_distance[10];
+    uint32_t message_nr[10];
     //private
-    uint32_t alfa_count;
     uint32_t old_alfa_count;
-    uint8_t record;
 };
 
-#define ALFA_SPEED_DEFAULT_CONFIG() { \
+#define GPS_SPEED_ALFA_DEFAULT_CONFIG() { \
+    .set_alfa_dist = 0, \
+    .speed = GPS_SPEED_DEFAULT_CONFIG(), \
     .straight_dist_square = 0, \
-    .alfa_speed = 0, \
-    .alfa_speed_max = 0, \
-    .display_max_speed = 0, \
-    .alfa_circle_square = 0, \
-    .avg_speed = {0}, \
     .real_distance = {0}, \
-    .time_hour = {0}, \
-    .time_min = {0}, \
-    .time_sec = {0}, \
-    .this_run = {0}, \
-    .message_nr = {0}, \
     .alfa_distance = {0}, \
-    .alfa_count = 0, \
+    .message_nr = {0}, \
     .old_alfa_count = 0, \
-    .record = 0 \
 }
 
 /**
@@ -243,19 +220,20 @@ typedef struct gps_context_s {
     struct gps_speed_by_dist_s M500;
     struct gps_speed_by_dist_s M1852;
     struct gps_speed_by_time_s S2;
-    struct gps_speed_by_time_s s2;         // for  stats GPIO_12 screens, reset possible !!
     struct gps_speed_by_time_s S10;
-    struct gps_speed_by_time_s s10;        // for  stats GPIO_12 screens, reset possible !!
     struct gps_speed_by_time_s S1800;
     struct gps_speed_by_time_s S3600;
     struct gps_speed_alfa_s A250;
     struct gps_speed_alfa_s A500;
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+    struct gps_speed_by_time_s s2;         // for  stats GPIO_12 screens, reset possible !!
+    struct gps_speed_by_time_s s10;        // for  stats GPIO_12 screens, reset possible !!
     struct gps_speed_alfa_s a500;     // for  Alfa stats GPIO_12 screens, reset possible !!
-    
+#endif    
     bool Gps_fields_OK;
     
-    uint32_t run_count;
-    uint32_t old_run_count;
+    uint16_t run_count;
+    uint16_t old_run_count;
     uint8_t GPS_delay;
 
     uint32_t time_out_gps_msg;
@@ -291,22 +269,29 @@ typedef struct gps_context_s {
     int output_rate_swp;
 } gps_context_t;
 
-#define CONTEXT_GPS_DEFAULT_CONFIG { \
+#if defined(CONFIG_LOGGER_BUTTON_GPIO_1_ACTIVE)
+#define GPS_CTX_GPIO_1_ACT_CONFIG \
+    .s2 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG, \
+    .s10 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG, \
+    .a500 = GPS_SPEED_ALFA_DEFAULT_CONFIG(),
+#else
+#define GPS_CTX_GPIO_1_ACT_CONFIG
+#endif
+
+#define CONTEXT_GPS_DEFAULT_CONFIG() { \
     .Ublox = GPS_DATA_DEFAULT_CONFIG(), \
     .Ublox_Sat = GPS_SAT_INFO_DEFAULT_CONFIG(), \
-    .M100 = GPS_SPEED_DEFAULT_CONFIG(), \
-    .M250 = GPS_SPEED_DEFAULT_CONFIG(), \
-    .M500 = GPS_SPEED_DEFAULT_CONFIG(), \
-    .M1852 = GPS_SPEED_DEFAULT_CONFIG(), \
-    .S2 = GPS_TIME_DEFAULT_CONFIG, \
-    .s2 = GPS_TIME_DEFAULT_CONFIG, \
-    .S10 = GPS_TIME_DEFAULT_CONFIG, \
-    .s10 = GPS_TIME_DEFAULT_CONFIG, \
-    .S1800 = GPS_TIME_DEFAULT_CONFIG, \
-    .S3600 = GPS_TIME_DEFAULT_CONFIG, \
-    .A250 = ALFA_SPEED_DEFAULT_CONFIG(), \
-    .A500 = ALFA_SPEED_DEFAULT_CONFIG(), \
-    .a500 = ALFA_SPEED_DEFAULT_CONFIG(), \
+    .M100 = GPS_SPEED_BY_DIST_DEFAULT_CONFIG(), \
+    .M250 = GPS_SPEED_BY_DIST_DEFAULT_CONFIG(), \
+    .M500 = GPS_SPEED_BY_DIST_DEFAULT_CONFIG(), \
+    .M1852 = GPS_SPEED_BY_DIST_DEFAULT_CONFIG(), \
+    .S2 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG(), \
+    .S10 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG(), \
+    .S1800 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG(), \
+    .S3600 = GPS_SPEED_BY_TIME_DEFAULT_CONFIG(), \
+    .A250 = GPS_SPEED_ALFA_DEFAULT_CONFIG(), \
+    .A500 = GPS_SPEED_ALFA_DEFAULT_CONFIG(), \
+    GPS_CTX_GPIO_1_ACT_CONFIG \
     .Gps_fields_OK = false, \
     .run_count = 0, \
     .old_run_count = 0, \
@@ -332,7 +317,7 @@ typedef struct gps_context_s {
     .next_time_sync = 0, \
     .ubx_restart_requested = false, \
     .gps_is_moving = false, \
-    .output_rate_swp = 0, \
+    .output_rate_swp = 0 \
 }
 
 /** 
@@ -359,7 +344,7 @@ struct gps_speed_by_time_s * init_gps_time(struct gps_speed_by_time_s*, uint16_t
  * @param struct gps_speed_by_time_s* Pointer to the GPS speed by time structure
  * @return float Updated speed
 */
-float update_speed(struct gps_context_s * context, struct gps_speed_by_time_s*);//update function
+float update_speed_by_time(struct gps_context_s * context, struct gps_speed_by_time_s*);//update function
 
 /** 
  * @brief Reset the time statistics
@@ -376,6 +361,8 @@ void reset_time_stats(struct gps_speed_by_time_s*); //reset all stats to 0
 */
 struct GPS_SAT_info* init_gps_sat_info(struct GPS_SAT_info*);
 
+struct nav_sat_s;
+
 /** 
  * @brief Push the GPS satellite information
  * 
@@ -383,16 +370,6 @@ struct GPS_SAT_info* init_gps_sat_info(struct GPS_SAT_info*);
  * @param struct nav_sat_s * Pointer to the NAV SAT structure
 */
 void push_gps_sat_info(struct GPS_SAT_info*, struct nav_sat_s * nav_sat);
-
-/** 
- * @brief sort the run data
-*/
-void sort_run(double a[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint16_t mean_cno[], uint8_t max_cno[], uint8_t min_cno[], uint8_t nrSats[], uint32_t runs[], uint8_t size);
-
-/** 
- * @brief sort the run data for alfa
-*/
-void sort_run_alfa(double a[], int32_t dis[], uint32_t message[], uint8_t hour[], uint8_t minute[], uint8_t seconde[], uint32_t runs[], uint32_t samples[], uint8_t size);
 
 /** 
  * @brief Initialize the GPS speed by distance structure
@@ -422,7 +399,7 @@ void reset_distance_stats(struct gps_speed_by_dist_s *me);
 /** 
  * @brief Update the distance statistics
 */
-double update_distance(struct gps_context_s *context, struct gps_speed_by_dist_s *);
+float update_speed_by_distance(struct gps_context_s *context, struct gps_speed_by_dist_s *);
 
 /** 
  * @brief Initialize the alpha speed structure
@@ -431,7 +408,7 @@ double update_distance(struct gps_context_s *context, struct gps_speed_by_dist_s
  * @param int alfa_radius Radius of the circle in m
  * @return struct gps_speed_alfa_s* Pointer to the alpha speed structure
  */
-struct gps_speed_alfa_s * init_alfa_speed(struct gps_speed_alfa_s*,int alfa_radius);//constructor
+struct gps_speed_alfa_s * init_alfa_speed(struct gps_speed_alfa_s*, uint16_t alfa_radius);//constructor
 
 /** 
  * @brief Update the alpha speed
@@ -449,19 +426,6 @@ float update_alfa_speed(struct gps_context_s * context, struct gps_speed_alfa_s*
  * @param struct gps_speed_alfa_s* Pointer to the alpha speed structure
  */
 void reset_alfa_stats(struct gps_speed_alfa_s*); //reset all stats to 0
-
-/** 
- * @brief Calculate the distance between two points
- * 
- * @param float long_act Longitude of the actual position
- * @param float lat_act Latitude of the actual position
- * @param float long_1 Longitude of the first point
- * @param float lat_1 Latitude of the first point
- * @param float long_2 Longitude of the second point
- * @param float lat_2 Latitude of the second point
- * @return float Distance between the two points
- */
-float dis_point_line(float long_act,float lat_act,float long_1,float lat_1,float long_2,float lat_2);
 
 /** 
  * @brief Calculate the alpha indicator

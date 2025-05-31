@@ -51,6 +51,20 @@ extern struct gps_context_s * gps;
 #define SPEED_DETECTION_MIN 4000  // min average speed over 2s for new run detection (mm/s)
 #define STANDSTILL_DETECTION_MAX  1000  // max average speed over 2s voor stand still detection (mm/s)
 
+struct gps_point_s;
+/** 
+ * @brief Calculate the distance between two points
+ * 
+ * @param float long_act Longitude of the actual position
+ * @param float lat_act Latitude of the actual position
+ * @param float long_1 Longitude of the first point
+ * @param float lat_1 Latitude of the first point
+ * @param float long_2 Longitude of the second point
+ * @param float lat_2 Latitude of the second point
+ * @return float Distance between the two points
+ */
+float dist_point_line(struct gps_point_s * act,  struct gps_point_s * p1, struct gps_point_s * p2);
+
 #ifdef __cplusplus
 }
 #endif
