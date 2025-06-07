@@ -93,13 +93,13 @@ struct GPS_SAT_info {
 typedef struct gps_run_s {
     struct gps_tm_s time;
     float avg_speed;
-    uint16_t this_run;
+    uint16_t nr_run;
 } gps_run_t;
 
 #define GPS_RUN_DEFAULT_CONFIG() { \
     .time = {0, 0, 0}, \
     .avg_speed = 0, \
-    .this_run = 0 \
+    .nr_run = 0 \
 }
 
 typedef struct gps_display_s {
@@ -122,8 +122,9 @@ typedef struct gps_speed_s {
     float speed;           // speed over the desired distance
     float speed_alfa;      // alpha speed over the desired distance
     float max_speed;      // maximum speed of the last run
+    float avg_5runs;         // speed average for 5 runs over the desired time window
     gps_display_t display; // display speed for the last 10 runs
-    uint16_t old_run;
+    uint16_t nr_prev_run;
 } gps_speed_t;
 
 #define GPS_SPEED_DEFAULT_CONFIG() { \
@@ -131,8 +132,9 @@ typedef struct gps_speed_s {
     .speed = 0, \
     .speed_alfa = 0, \
     .max_speed = 0, \
+    .avg_5runs = 0, \
     .display = GPS_DISPLAY_DEFAULT_CONFIG(), \
-    .old_run = 0 \
+    .nr_prev_run = 0 \
 }
 
 struct gps_speed_by_dist_s {
@@ -159,14 +161,30 @@ struct gps_speed_by_dist_s {
     .m_sample = 0 \
 }
 
+// #define SPEED_BAR_SETUP 1
+#if defined(SPEED_BAR_SETUP)
+#define NR_OF_BAR 42 // number of bars in the bar_graph
+struct gps_speed_bar_s {
+    float run_speed[NR_OF_BAR]; // for bar_graph
+    uint16_t bar_count;
+};
+
+#define GPS_SPEED_BAR_DEFAULT_CONFIG { \
+    .run_speed = {0}, \
+    .bar_count = 0 \
+},
+#else
+#define GPS_SPEED_BAR_DEFAULT_CONFIG
+#endif
+
 // calculation of average speed over a time window (2s, 10s, 1800s...)
 struct gps_speed_by_time_s {
     uint16_t time_window;     // time window in seconds, e.g. 2s, 10s, 1800s...
     gps_speed_t speed;        // speed over the desired time window
     int32_t avg_s_sum;
-    double avg_5runs;         // speed average for 5 runs over the desired time window
-    uint16_t speed_bar_run_counter;
-    float speed_bar_run[50];       //for bar_graph
+#if defined(SPEED_BAR_SETUP)
+    struct gps_speed_bar_s bar;
+#endif
     uint16_t Mean_cno[10];
     uint8_t Max_cno[10];
     uint8_t Min_cno[10];
@@ -178,9 +196,7 @@ struct gps_speed_by_time_s {
     .time_window = 0, \
     .speed = GPS_SPEED_DEFAULT_CONFIG(), \
     .avg_s_sum = 0, \
-    .avg_5runs = 0, \
-    .speed_bar_run_counter = 0, \
-    .speed_bar_run = {0}, \
+    GPS_SPEED_BAR_DEFAULT_CONFIG \
     .Mean_cno = {0}, \
     .Max_cno = {0}, \
     .Min_cno = {0}, \
@@ -196,7 +212,6 @@ struct gps_speed_alfa_s {
     uint32_t alfa_distance[10];
     uint32_t message_nr[10];
     //private
-    uint32_t old_alfa_count;
 };
 
 #define GPS_SPEED_ALFA_DEFAULT_CONFIG() { \
@@ -206,7 +221,6 @@ struct gps_speed_alfa_s {
     .real_distance = {0}, \
     .alfa_distance = {0}, \
     .message_nr = {0}, \
-    .old_alfa_count = 0, \
 }
 
 /**

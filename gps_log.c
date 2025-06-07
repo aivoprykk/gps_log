@@ -91,8 +91,7 @@ static int8_t set_time(float time_offset) {
     nav_pvt_t *pvt = &ubx_dev->ubx_msg.navPvt;
     if (!pvt->numSV) return 0;
     if (pvt->year < 2023) { // no valid time
-        WLOG(TAG, "[%s] error... %hhu || %hu-%hhu-%hhu\n", __func__, pvt->numSV, pvt->year, pvt->month, pvt->day);
-        // return 0;
+        WLOG(TAG, "[%s] wrong time: %hu-%hhu-%hhu", __func__, pvt->year, pvt->month, pvt->day);
     }
     uint32_t millis = get_millis();
     if (gps->time_set && millis < gps->next_time_sync) { // time already set and not time to sync
@@ -132,7 +131,7 @@ static int8_t set_time(float time_offset) {
     // unix_timestamp = mktime(&my_time);  // mktime returns local time, so TZ is important !!!
     // int64_t utc_ms = unix_timestamp * 1000LL + NANO_TO_MILLIS_ROUND(pvt->nano);
     // int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
-    WLOG(TAG, "GPS pvt time: %d-%02d-%02d %02d:%02d:%02d %ld", pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, pvt->nano);
+    WLOG(TAG, "GPS pvt time: %d-%02d-%02d %02d:%02d:%02d %ld %hhu", pvt->year, pvt->month, pvt->day, pvt->hour, pvt->minute, pvt->second, pvt->nano, pvt->id);
     // WLOG(TAG, "GPS tm time : %d-%02d-%02d %02d:%02d:%02d %ld", my_time.tm_year+1900, my_time.tm_mon+1, my_time.tm_mday, my_time.tm_hour, my_time.tm_min, my_time.tm_sec, NANO_TO_US_ROUND(pvt->nano));
 #endif
 #if (C_LOG_LEVEL < 4)
@@ -188,6 +187,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                     }
 
                     set_time(log_get_tz(gps));
+                    printf(" msg:[%lu, %hu-%hhu-%hhu %hhu:%hhu:%hhu]", nav_pvt->iTOW, nav_pvt->year, nav_pvt->month, nav_pvt->day, nav_pvt->hour, nav_pvt->minute, nav_pvt->second);
 
                     if (!gps->files_opened && gps->signal_ok && (gps->GPS_delay > (TIME_DELAY_FIRST_FIX * ubx_dev->rtc_conf->output_rate))) {  // vertraging Gps_time_set is nu 10 s!!
                         int32_t avg_speed = 0;
@@ -221,9 +221,9 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                         if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK)) {
 #if (C_LOG_LEVEL < 2)
                             const char * c = " GPS run cancelled ";
-                            if(nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s %hhu <= %d MIN_numSV_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->numSV, (int)MIN_numSV_GPS_SPEED_OK);
-                            if(MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%.01f > %d MAX_Sacc_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->sAcc), (int)MAX_Sacc_GPS_SPEED_OK);
-                            if(MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK) ESP_LOGE(TAG, "[%s]%s%.01f > %d MAX_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->gSpeed), (int)MAX_GPS_SPEED_OK);
+                            if(nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) WLOG(TAG, "[%s]%s %hhu <= %d MIN_numSV_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->numSV, (int)MIN_numSV_GPS_SPEED_OK);
+                            if(MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) WLOG(TAG, "[%s]%s%.01f > %d MAX_Sacc_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->sAcc), (int)MAX_Sacc_GPS_SPEED_OK);
+                            if(MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK) WLOG(TAG, "[%s]%s%.01f > %d MAX_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->gSpeed), (int)MAX_GPS_SPEED_OK);
 #endif
                             gps->gps_speed = 0;
                             gps_data->run_start_time = 0;
@@ -276,7 +276,7 @@ static  esp_err_t ubx_msg_do(ubx_msg_byte_ctx_t *ubx_packet) {
                             ++push_ok_count;
                         #endif
                         new_run_detection(gps, FROM_100K(nav_pvt->heading), gps->S2.speed.speed);
-                        gps->alfa_window = alfa_indicator(gps, FROM_100K(nav_pvt->heading));
+                        alfa_indicator(gps, FROM_100K(nav_pvt->heading));
                         // new run detected, reset run distance
                         if (gps->run_count != gps->old_run_count) {
                             gps_data->run_distance = 0;

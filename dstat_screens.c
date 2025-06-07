@@ -39,7 +39,7 @@ static float S10_s_max(void) {
     return get_spd((float)gps->S10.speed.max_speed);
 }
 static float S10_display_avg(void) {
-    return get_spd((float)gps->S10.avg_5runs);
+    return get_spd((float)gps->S10.speed.avg_5runs);
 }
 static size_t S10_display_max_time(char *p1) {
     return time_to_char_hm(gps->S10.speed.runs[9].time.hour, gps->S10.speed.runs[9].time.minute, p1);

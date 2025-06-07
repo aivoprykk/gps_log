@@ -46,10 +46,15 @@ extern struct gps_context_s * gps;
 #define MAX_Sacc_GPS_SPEED_OK  1   // max Sacc value for calculating speed, otherwise 0
 #define MAX_GPS_SPEED_OK  60       // max speed in m/s for calculating speed, otherwise 0 - [60 m/s = 216 km/h]
 
-#define TIME_DELAY_FIRST_FIX 10       // 10 navpvt messages before start logging
+#define TIME_DELAY_FIRST_FIX 10        // 10 navpvt messages before start logging
 
-#define SPEED_DETECTION_MIN 4000  // min average speed over 2s for new run detection (mm/s)
-#define STANDSTILL_DETECTION_MAX  1000  // max average speed over 2s voor stand still detection (mm/s)
+#define SPEED_DETECTION_MIN 4000       // min average speed over 2s for new run detection (mm/s)
+#define STANDSTILL_DETECTION_MAX  1000 // max average speed over 2s voor stand still detection (mm/s)
+
+#define MEAN_HEADING_TIME 15         // time in sec for calculating average heading
+#define STRAIGHT_COURSE_MAX_DEV 10   // max angle deviation for straight ahead recognition (degrees)
+#define JIBE_COURSE_DEVIATION_MIN 50 // min angle deviation for jibe detection (degrees)
+#define TIME_DELAY_NEW_RUN 10U       // uint time_delay_new_run
 
 struct gps_point_s;
 /** 
