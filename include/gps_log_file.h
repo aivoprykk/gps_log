@@ -63,26 +63,16 @@ extern gps_log_file_config_t log_config;
 
 struct tm;
 struct gps_data_s;
-struct gps_speed_by_dist_s;
-struct gps_speed_by_time_s;
-struct gps_speed_alfa_s;
 struct gps_context_s;
 struct ubx_msg_s;
 
 gps_log_file_config_t *log_config_init();
-float log_get_tz(const struct gps_context_s * context);
 void log_err(const struct gps_context_s * context, const char *message);
 void open_files(struct gps_context_s * context);
 void close_files(struct gps_context_s *context);
 void flush_files(const struct gps_context_s *context);
 void log_to_file(struct gps_context_s * context); 
 bool log_files_opened(struct gps_context_s * context);
-
-void model_info(const struct gps_context_s * context, int model);
-void session_info(const struct gps_context_s *context, struct gps_data_s * G);
-void session_results_m(const struct gps_context_s *context, struct gps_speed_by_dist_s * M);
-void session_results_s(const struct gps_context_s *context, struct gps_speed_by_time_s * S);
-void session_results_alfa(const struct gps_context_s *context, struct gps_speed_alfa_s * A, struct gps_speed_by_dist_s * M);
 
 // esp_err_t log_config_add_config(gps_log_file_config_t * log, struct logger_config_s *config);
 // gps_log_file_config_t *log_config_new();

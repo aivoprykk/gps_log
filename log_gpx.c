@@ -57,12 +57,12 @@ void log_GPX(struct gps_context_s * context, int part) {
             msl = ubxMessage->navPvt.hMSL / 1000.0f;
             sat = ubxMessage->navPvt.numSV;
             speed = ubxMessage->navPvt.gSpeed / 1000.0f;
-            year = ubxMessage->navPvt.year;
-            month = ubxMessage->navPvt.month;
-            day = ubxMessage->navPvt.day;
-            hour = ubxMessage->navPvt.hour;
-            minute = ubxMessage->navPvt.minute;
-            sec = ubxMessage->navPvt.second;
+            year = (int)ubxMessage->navPvt.year;
+            month = (int)ubxMessage->navPvt.month;
+            day = (int)ubxMessage->navPvt.day;
+            hour = (int)ubxMessage->navPvt.hour;
+            minute = (int)ubxMessage->navPvt.minute;
+            sec = (int)ubxMessage->navPvt.second;
             y = 0;
             i = sprintf(&bufferTx[y], "<trkpt lat=\"%.7f\" lon=\"%.7f\">", lat, lon);
             y = y + i;

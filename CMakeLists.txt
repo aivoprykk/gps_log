@@ -1,4 +1,15 @@
-SET(SRCS gps_log_core.c gps_log_file.c log_gpx.c log_gpy.c log_sbp.c log_ubx.c dstat_screens.c gps_log.c gps_user_cfg.c)
+SET(SRCS 
+gps_data.c
+gps_log_file.c
+log_gpx.c
+log_gpy.c
+log_sbp.c
+log_ubx.c
+dstat_screens.c
+gps_log.c
+gps_user_cfg.c
+gps_speed_data.c
+gps_satellite_data.c)
 SET(INCLUDE include)
 idf_component_register(
     SRCS ${SRCS}

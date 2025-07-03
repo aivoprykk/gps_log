@@ -43,7 +43,7 @@ const char * const dynamic_models[] = {DYNAMIC_MODEL_ITEM_LIST(STRINGIFY)};
 static const char * const gnss_desc[] = {GSS_DESC_ITEM_LIST(STRINGIFY)};
 static const char * const not_set = "not set";
 static const uint8_t gnss_desc_val[] = {GNSS_DESC_VAL_LIST(L)};
-static const char * const timezone[] = {TIMEZONE_ITEM_LIST(STRINGIFY)};
+static const char * const timezone_items[] = {TIMEZONE_ITEM_LIST(STRINGIFY)};
 static const char * const file_date_time_items[] = {FILE_DATE_TIME_ITEM_LIST(STRINGIFY)};
 
 static SemaphoreHandle_t c_sem_lock = 0;
@@ -98,7 +98,7 @@ struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_
         if(num>=0 && num<gps_stat_screen_item_count) {
             item->name = config_stat_screen_items[num];
             item->pos = num;
-            item->value = (c_gps_cfg.stat_screens & (1 << num)) ? 1 : 0;
+            item->value = GETBIT(c_gps_cfg.stat_screens,num);
             item->desc = item->value ? "on" : "off";
         }
         gps_cfg_unlock();
@@ -115,7 +115,7 @@ int set_stat_screen_cfg_item(int num) {
     if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
         uint16_t val = c_gps_cfg.stat_screens;
         if(num>=0 && num<gps_stat_screen_item_count) {
-            val ^= (1 << num);
+            val ^= (BIT(num));
         }
         if(val!=c_gps_cfg.stat_screens) {
             c_gps_cfg.stat_screens = val;
@@ -162,9 +162,9 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 break;
             case gps_cfg_timezone:
                 item->value = c_gps_cfg.timezone;
-                for(int i = 0; i < sizeof(timezone) / sizeof(timezone[0]); i++) {
+                for(int i = 0; i < lengthof(timezone_items); i++) {
                     if(c_gps_cfg.timezone == i) {
-                        item->desc = timezone[i];
+                        item->desc = timezone_items[i];
                         break;
                     }
                 }
@@ -229,6 +229,17 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
     }
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &item, sizeof(item), portMAX_DELAY);
     return item;
+}
+
+void gps_config_fix_values(void) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    if(!gps_log_file_bits_check(log_config.log_file_bits))
+        SETBIT(log_config.log_file_bits, SD_SBP);
+    if(rtc_config.gnss == 0) {
+        rtc_config.gnss = 111; // default to GPS + GLONASS + BEIDOU + GALILEO
+    }
 }
 
 static void set_gps_time_out_msg(void) {
@@ -472,28 +483,31 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
             case gps_cfg_log_txt: // || !strcmp(var, "logTXT")) {  // switchinf off .txt files
                 ret = set_bit(item, &log_config.log_file_bits, SD_TXT, 0);
                 if(!ret) changed = gps_cfg_log_txt;
-                break;
+                goto test_if_log_set; // if no log file selected, set SBP as default
             case gps_cfg_log_ubx: // || !strcmp(var, "logUBX")) {  // log to .ubx
                 ret = set_bit(item, &log_config.log_file_bits, SD_UBX, 0);
                 if(!ret) changed = gps_cfg_log_ubx;
-                break;
+                goto test_if_log_set; // if no log file selected, set SBP as default
             case gps_cfg_log_ubx_nav_sat: // || !strcmp(var, "logUBX_nav_sat")) {  // log nav sat msg to .ubx
                 ret = set_hhu(item, (uint8_t*)&rtc_config.msgout_sat, 0);
                 if(!ret) changed = gps_cfg_log_ubx_nav_sat;
-                break;
+                goto test_if_log_set; // if no log file selected, set SBP as default
             case gps_cfg_log_sbp: // || !strcmp(var, "logSBP")) {  // log to .sbp
                 ret = set_bit(item, &log_config.log_file_bits, SD_SBP, 0);
                 if(!ret) changed = gps_cfg_log_sbp;
+                test_if_log_set:
+                if(!gps_log_file_bits_check(log_config.log_file_bits))
+                    SETBIT(log_config.log_file_bits, SD_SBP); // set SBP if none selected
                 break;
             case gps_cfg_log_gpx: //  || !strcmp(var, "logGPX")) {
                 ret = set_bit(item, &log_config.log_file_bits, SD_GPX, 0);
                 if(!ret) changed = gps_cfg_log_gpx;
-                break;
+                goto test_if_log_set; // if no log file selected, set SBP as default
 #ifdef GPS_LOG_ENABLE_GPY
             case gps_cfg_log_gpy: // || !strcmp(var, "logGPY")) {
                 ret = set_bit(item, &log_config.log_file_bits, SD_GPY, 0);
                 if(!ret) changed = gps_cfg_log_gpy;
-                break;
+                goto test_if_log_set; // if no log file selected, set SBP as default
 #endif
             case gps_cfg_ubx_file: // ]) || !strcmp(var, "UBXfile")) {
                 ret = set_c(item, &c_gps_cfg.ubx_file[0], 0);
@@ -626,7 +640,7 @@ esp_err_t gps_config_decode(const char *json) {
                 item = json_find_member(gps, "logTXT");
 #endif
             }
-             else if(i+CFG_GPS_ITEM_BASE == gps_cfg_log_ubx_nav_sat) {
+            else if(i+CFG_GPS_ITEM_BASE == gps_cfg_log_ubx_nav_sat) {
 #if defined(CONFIG_GPS_LOG_USE_CJSON)
                 item = cJSON_GetObjectItemCaseSensitive(gps, "logUBX_nav_sat");
 #else
@@ -715,7 +729,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putd(lsb, c_gps_cfg.timezone, 1, 0);
                 if (mode) {
                     strbf_puts(lsb, cfg_values[9]);
-                    add_from_list(lsb, timezone, lengthof(timezone));
+                    add_from_list(lsb, timezone_items, lengthof(timezone_items));
                 }                                        // 2575
                 break;
             case gps_cfg_stat_screens: // choice for stats field when no speed, here stat_screen 1, 2 and 3 will be active
@@ -890,7 +904,7 @@ char *gps_config_get(const char *name, struct strbf_s *lsb, uint8_t mode) {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] name:%s", __func__, name ? name : "-");
 #endif
-    assert(lsb);
+    if(!lsb) return NULL;
     uint8_t pos = gps_cfg_get_pos(name);
     if (pos == 255) {
         goto end;
@@ -901,7 +915,7 @@ char *gps_config_get(const char *name, struct strbf_s *lsb, uint8_t mode) {
 }
 
 char * gps_config_encode(strbf_t *sb, uint8_t mode, uint8_t mode2) {
-    assert(sb);
+    if(!sb) return NULL;
     if(mode==2) {
         strbf_putc(sb, '{');
     }

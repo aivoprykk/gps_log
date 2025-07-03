@@ -126,6 +126,7 @@ char *gps_config_get(const char *name, struct strbf_s *sb, uint8_t mode);
 char * gps_config_encode(struct strbf_s *sb, uint8_t mode, uint8_t mode2);
 struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_s *item);
 int set_stat_screen_cfg_item(int num);
+void gps_config_fix_values(void);
 
 #ifdef __cplusplus
 }

@@ -129,17 +129,21 @@ enum avail_fields_e {
   fld_m1852_r1_display,
   fld_m1852_r2_display,
   
-  fld_s10_s_max,
+  fld_s10_cur_run_max,
   
   fld_total_time_hms,
   fld_total_time_sec,
   fld_run_time_sec,
 
-  fld_a500_a_max,
-  fld_m1852_m_max,
-  fld_m500_m_max,
-  fld_s1800_s_max,
-  fld_s3600_s_max
+  fld_a500_cur_run_max,
+  fld_m1852_cur_run_max,
+  fld_m500_cur_run_max,
+  fld_s1800_cur_run_max,
+  fld_s3600_cur_run_max,
+  fld_s2_cur_run_max,
+  fld_m100_cur_run_max,
+  fld_m250_cur_run_max,
+  fld_total_time_hm,
 };
 
 #ifdef __cplusplus
