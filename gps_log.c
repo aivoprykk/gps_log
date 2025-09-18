@@ -97,7 +97,7 @@ const char * gps_log_event_strings(int id) {
 
 static int8_t set_time(float time_offset) {
 #if (C_LOG_LEVEL < 1)
-    DLOG(TAG, "[%s]\n", __FUNCTION__);
+    DLOG(TAG, "[%s]", __FUNCTION__);
 #endif
     struct ubx_config_s *ubx_dev = gps->ubx_device;
     nav_pvt_t *pvt = &ubx_dev->ubx_msg.navPvt;
@@ -112,7 +112,7 @@ static int8_t set_time(float time_offset) {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] time_offset: %f", __FUNCTION__, time_offset);
 #endif
-    //ESP_LOGI(TAG, "[%s] sats: %" PRIu8, __FUNCTION__, pvt->numSV);
+    //ILOG(TAG, "[%s] sats: %" PRIu8, __FUNCTION__, pvt->numSV);
     // time_t unix_timestamp = 0;  // a timestamp in seconds
 #if defined(DLS)
     // summertime is on march 26 2023 2 AM, see
@@ -292,7 +292,7 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                             ++push_failed_count;
                         #endif
 #if (C_LOG_LEVEL < 2)
-                            ESP_LOGE(TAG, "[%s] push msg failed, timer: %lu, msg_count: %lu ...\n", __func__, now, ubxMessage->count_nav_pvt);
+                            ELOG(TAG, "[%s] push msg failed, timer: %lu, msg_count: %lu ...\n", __func__, now, ubxMessage->count_nav_pvt);
 #endif
                             goto end;
                         }
@@ -513,7 +513,7 @@ void gps_init(gps_context_t * _gps) {
             .arg = _gps->ubx_device,
         };
         if(esp_timer_create(&gps_periodic_timer_args, &gps_periodic_timer)){
-            ESP_LOGE(TAG, "[%s] Failed to create periodic timer", __func__);
+            ELOG(TAG, "[%s] Failed to create periodic timer", __func__);
         }
 #endif
 }

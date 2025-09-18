@@ -18,6 +18,19 @@
 
 static const char * TAG = "gps_user_cfg"; // for logging
 
+// Optimized string constants to reduce memory usage
+static const char str_on[] = "on";
+static const char str_off[] = "off";
+static const char str_not_set[] = "not set";
+static const char str_ubx[] = ".ubx";
+static const char str_sbp[] = ".sbp";
+static const char str_txt[] = ".txt";
+static const char str_gpx[] = ".gpx";
+static const char str_gpy[] = ".gpy";
+
+// Pre-calculated timeout for common semaphore operations
+static const TickType_t timeout_max = portMAX_DELAY;
+
 #define CFG_TO_BASE(l) (l-CFG_GPS_ITEM_BASE)
 #define SPEED_UNIT_ITEM_LIST(l) l(m/s) l(km/h) l(knots)
 #define SAMPLE_RATE_ITEM_LIST(l) l(1 Hz) l(2 Hz) l(5 Hz) l(10 Hz) l(16 Hz) l(20 Hz)
@@ -41,7 +54,6 @@ const size_t gps_stat_screen_item_count = sizeof(config_stat_screen_items) / siz
 
 const char * const dynamic_models[] = {DYNAMIC_MODEL_ITEM_LIST(STRINGIFY)};
 static const char * const gnss_desc[] = {GSS_DESC_ITEM_LIST(STRINGIFY)};
-static const char * const not_set = "not set";
 static const uint8_t gnss_desc_val[] = {GNSS_DESC_VAL_LIST(L)};
 static const char * const timezone_items[] = {TIMEZONE_ITEM_LIST(STRINGIFY)};
 static const char * const file_date_time_items[] = {FILE_DATE_TIME_ITEM_LIST(STRINGIFY)};
@@ -65,7 +77,7 @@ void gps_user_cfg_init(void) {
         c_sem_lock = xSemaphoreCreateMutex();
     }
     if(!c_sem_lock) {
-        ESP_LOGE(TAG, "Failed to create semaphore");
+        ELOG(TAG, "Failed to create semaphore");
     }
     // set_speed_calibration_unit();
 }
@@ -79,7 +91,7 @@ void gps_user_dfg_deinit(void) {
 
 static bool gps_cfg_lock(int timeout) {
     if (!c_sem_lock) return false;
-    const TickType_t timeout_ticks = (timeout == -1) ? portMAX_DELAY : pdMS_TO_TICKS(timeout);
+    const TickType_t timeout_ticks = (timeout == -1) ? timeout_max : pdMS_TO_TICKS(timeout);
     return  xSemaphoreTake(c_sem_lock, timeout_ticks) == pdTRUE;
 }
 
@@ -94,16 +106,16 @@ struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_
     ILOG(TAG, "[%s] num:%d", __func__, num);
 #endif
     if(!item) return 0;
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+    if(gps_cfg_lock(timeout_max) == pdTRUE) {
         if(num>=0 && num<gps_stat_screen_item_count) {
             item->name = config_stat_screen_items[num];
             item->pos = num;
             item->value = GETBIT(c_gps_cfg.stat_screens,num);
-            item->desc = item->value ? "on" : "off";
+            item->desc = item->value ? str_on : str_off;
         }
         gps_cfg_unlock();
     }
-    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &num, sizeof(num), portMAX_DELAY);
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &num, sizeof(num), timeout_max);
     return item;
 }
 
@@ -112,7 +124,7 @@ int set_stat_screen_cfg_item(int num) {
     ILOG(TAG, "[%s] num:%d", __func__, num);
 #endif
     if(num>=gps_stat_screen_item_count) return 0;
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+    if(gps_cfg_lock(timeout_max) == pdTRUE) {
         uint16_t val = c_gps_cfg.stat_screens;
         if(num>=0 && num<gps_stat_screen_item_count) {
             val ^= (BIT(num));
@@ -122,7 +134,7 @@ int set_stat_screen_cfg_item(int num) {
         }
         gps_cfg_unlock();
     }
-    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), portMAX_DELAY);
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &num, sizeof(num), timeout_max);
     return 1;
 }
 
@@ -134,7 +146,7 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) num = CFG_GPS_ITEM_BASE;
     item->name = config_gps_items[CFG_TO_BASE(num)];
     item->pos = num;
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+    if(gps_cfg_lock(timeout_max) == pdTRUE) {
         switch (num)  {
             case gps_cfg_gnss:
                 item->value = rtc_config.gnss;
@@ -145,7 +157,7 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                     }
                 }
                 if (!item->desc) {
-                    item->desc = not_set;
+                    item->desc = str_not_set;
                 }
                 break;
             case gps_cfg_sample_rate:
@@ -157,7 +169,7 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                     case UBX_OUTPUT_10HZ: item->desc = sample_rates[3]; break;
                     case UBX_OUTPUT_16HZ: item->desc = sample_rates[4]; break;
                     case UBX_OUTPUT_20HZ: item->desc = sample_rates[5]; break;
-                    default: item->desc = not_set; break;
+                    default: item->desc = str_not_set; break;
                 }
                 break;
             case gps_cfg_timezone:
@@ -175,29 +187,29 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 break;
             case gps_cfg_log_txt:
                 item->value = GETBIT(log_config.log_file_bits, SD_TXT) ? 1 : 0;
-                item->desc = item->value ? "on" : "off";
+                item->desc = item->value ? str_on : str_off;
                 break;
             case gps_cfg_log_ubx:
                 item->value = GETBIT(log_config.log_file_bits, SD_UBX) ? 1 : 0;
-                item->desc = item->value ? "on" : "off";
+                item->desc = item->value ? str_on : str_off;
                 break;
             case gps_cfg_log_sbp:
                 item->value = GETBIT(log_config.log_file_bits, SD_SBP) ? 1 : 0;
-                item->desc = item->value ? "on" : "off";
+                item->desc = item->value ? str_on : str_off;
                 break;
             case gps_cfg_log_gpx:
                 item->value = GETBIT(log_config.log_file_bits, SD_GPX) ? 1 : 0;
-                item->desc = item->value ? "on" : "off";
+                item->desc = item->value ? str_on : str_off;
                 break;
 #ifdef GPS_LOG_ENABLE_GPY
             case gps_cfg_log_gpy:
                 item->value = GETBIT(log_config.log_file_bits, SD_GPY) ? 1 : 0;
-                item->desc = item->value ? "on" : "off";
+                item->desc = item->value ? str_on : str_off;
                 break;
 #endif
             case gps_cfg_log_ubx_nav_sat:
                 item->value = rtc_config.msgout_sat ? 1 : 0;
-                item->desc = rtc_config.msgout_sat ? "on" : "off";
+                item->desc = rtc_config.msgout_sat ? str_on : str_off;
                 break;
             // case gps_cfg_dynamic_model_auto:
             //     item->value = rtc_config.nav_mode_auto ? 1 : 0;
@@ -210,7 +222,7 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                     case UBX_MODE_PEDESTRIAN: item->desc = dynamic_models[1]; break;
                     case UBX_MODE_AUTOMOTIVE: item->desc = dynamic_models[2]; break;
                     case UBX_MODE_SEA: item->desc = dynamic_models[3]; break;
-                    default: item->desc = not_set; break;
+                    default: item->desc = str_not_set; break;
                 }
                 break;
             case gps_cfg_file_date_time:
@@ -222,12 +234,12 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
                 item->desc = c_gps_cfg.ubx_file;
                 break;
             default:
-                item->desc = not_set;
+                item->desc = str_not_set;
                 break;
         }
         gps_cfg_unlock();
     }
-    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &item, sizeof(item), portMAX_DELAY);
+    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_GET, &item, sizeof(item), timeout_max);
     return item;
 }
 
@@ -263,7 +275,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) return 255;
     const char *name = config_gps_items[CFG_TO_BASE(num)];
     struct gps_user_cfg_evt_data_s evt_data = {num, 0};
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE){
+    if(gps_cfg_lock(timeout_max) == pdTRUE){
         switch(num) {
             case gps_cfg_gnss:
                 switch(rtc_config.gnss) {
@@ -384,7 +396,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
         gps_cfg_unlock();
     }
     if(!skip_done_msg) /// if set, no message is sent and no cfg save requested
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &evt_data, sizeof(evt_data), portMAX_DELAY);
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_SET, &evt_data, sizeof(evt_data), timeout_max);
     return num;
 }
 
@@ -445,7 +457,7 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
 #else
     JsonNode *item = (JsonNode *)el;
 #endif
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+    if(gps_cfg_lock(timeout_max) == pdTRUE) {
         switch (pos) {
             case gps_cfg_file_date_time:
                 ret = set_hhu(item, &c_gps_cfg.file_date_time, 0);
@@ -520,7 +532,7 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
         gps_cfg_unlock();
     }
     if(changed < 253){
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_CHANGED, &changed, sizeof(changed), portMAX_DELAY);
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CFG_CHANGED, &changed, sizeof(changed), timeout_max);
     }
     return changed;
 }
@@ -558,7 +570,7 @@ int gps_config_set(const char *str, void *root, uint8_t force) {
     }
     uint8_t pos = gps_cfg_get_pos(var);
     if (pos >= 254) {
-        DLOG(TAG, "[%s] ! var\n", __func__);
+        DLOG(TAG, "[%s] ! var", __func__);
         changed = 255;
         goto err;
     }
@@ -716,7 +728,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
     if (mode)
         strbf_puts(lsb, ",\"value\"");
     strbf_putc(lsb, ':');
-    if(gps_cfg_lock(portMAX_DELAY) == pdTRUE) {
+    if(gps_cfg_lock(timeout_max) == pdTRUE) {
         switch (pos) {
             case gps_cfg_file_date_time:
                 strbf_putn(lsb, c_gps_cfg.file_date_time);
@@ -839,7 +851,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_TXT) == 1 ? '1' : '0');
                 if (mode) {
                     strbf_puts(lsb, cfg_values[6]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, ".txt");
+                    strbf_puts(lsb, str_txt);
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
@@ -847,7 +859,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_UBX) == 0 ? '0' : '1');
                 if (mode) {
                     strbf_puts(lsb, cfg_values[6]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, ".ubx");
+                    strbf_puts(lsb, str_ubx);
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
@@ -863,7 +875,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_SBP) == 0 ? '0' : '1');
                 if (mode) {
                     strbf_puts(lsb, cfg_values[6]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, ".sbp");
+                    strbf_puts(lsb, str_sbp);
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
@@ -871,7 +883,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_GPX) == 0 ? '0' : '1');
                 if (mode) {
                     strbf_puts(lsb, cfg_values[6]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, ".gpx");
+                    strbf_puts(lsb, str_gpx);
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
@@ -880,7 +892,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
                 strbf_putc(lsb, GETBIT(log_config.log_file_bits, SD_GPY) == 0 ? '0' : '1');
                 if (mode) {
                     strbf_puts(lsb, cfg_values[6]); // ",\"info\":\"log to"
-                    strbf_puts(lsb, ".gpy");
+                    strbf_puts(lsb, str_gpy);
                     strbf_puts(lsb, cfg_values[7]); // ",\"type\":\"bool\"");
                 }
                 break;
@@ -896,7 +908,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
     err:
         gps_cfg_unlock();
     }
-    DLOG(TAG, "[%s] conf: %s len: %d\n", __func__, strbf_finish(lsb), lsb->cur - lsb->start);
+    DLOG(TAG, "[%s] conf: %s len: %d", __func__, strbf_finish(lsb), lsb->cur - lsb->start);
     return pos;
 }
 

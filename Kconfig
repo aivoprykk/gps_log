@@ -36,6 +36,13 @@ menu "Logger GPS Log Module Configuration"
         default n
         help
         Enable GPY Log Message Format
+    config GPS_SPEED_ERROR_LOGGING
+        bool "Enable GPS Speed Metrics Error Logging to TXT files"
+        default n
+        help
+            Enable comprehensive error logging for GPS speed metrics initialization 
+            and memory allocation failures. Errors will be written to .txt log files 
+            for persistent debugging. Disable to reduce program size and memory usage.
     choice
         bool "Default log verbosity"
         default GPS_LOG_LEVEL_ERROR
