@@ -100,7 +100,7 @@ typedef struct gps_p_context_s {
     float old_heading; // old heading for alfa // = 0
     float heading_mean;
     uint32_t standstill_start_millis;
-     SemaphoreHandle_t xMutex;
+    SemaphoreHandle_t xMutex;
 } gps_p_context_t;
 
 #define AA .buf_gspeed = {0}, .buf_gspeed_size = BUFFER_SIZE
@@ -138,7 +138,7 @@ typedef struct gps_p_context_s {
     .alfa_p1 = {0,0}, \
     .alfa_p2 = {0,0}, \
     .standstill_start_millis = 0, \
-    .xMutex = NULL  \
+    .xMutex = NULL, \
 }
 
 extern gps_p_context_t log_p_lctx;
@@ -148,7 +148,7 @@ inline bool gps_log_file_bits_check(uint8_t log_file_bits) {
 }
 
 inline float get_spd(float b) {
-    return b * c_gps_cfg.speed_calibration;
+    return convert_speed(b, c_gps_cfg.speed_unit);
 }
 
 inline float get_avg5(const float *arr, float (*conv)(float), int start_index) {

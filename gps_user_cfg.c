@@ -32,7 +32,7 @@ static const char str_gpy[] = ".gpy";
 static const TickType_t timeout_max = portMAX_DELAY;
 
 #define CFG_TO_BASE(l) (l-CFG_GPS_ITEM_BASE)
-#define SPEED_UNIT_ITEM_LIST(l) l(m/s) l(km/h) l(knots)
+#define SPEED_UNIT_ITEM_LIST(l) l(m/s) l(km/h) l(knots) l(m/ph)
 #define SAMPLE_RATE_ITEM_LIST(l) l(1 Hz) l(2 Hz) l(5 Hz) l(10 Hz) l(16 Hz) l(20 Hz)
 /// Portable -  Applications with low acceleration, e.g. portable devices. Suitable for most situations; max velocity is 310ms deviation medium
 /// Sea - Recommended for applications at sea, with zero vertical velocity. Zero vertical velocity assumed. Sea level assumed; max velocity is 25ms deviation medium
@@ -79,10 +79,9 @@ void gps_user_cfg_init(void) {
     if(!c_sem_lock) {
         ELOG(TAG, "Failed to create semaphore");
     }
-    // set_speed_calibration_unit();
 }
 
-void gps_user_dfg_deinit(void) {
+void gps_user_cfg_deinit(void) {
     if(c_sem_lock) {
         vSemaphoreDelete(c_sem_lock);
         c_sem_lock = 0;
@@ -261,13 +260,6 @@ static void set_gps_time_out_msg(void) {
     gps->time_out_gps_msg = HZ_TO_MS(rtc_config.output_rate) + 75;  // max time out = 175 ms
 }
 
-static void set_speed_calibration_unit(void) {
-#if C_LOG_LEVEL < 3
-    ILOG(TAG, "[%s]", __func__);
-#endif
-    c_gps_cfg.speed_calibration = c_gps_cfg.speed_unit == 1 ? 0.0036 : c_gps_cfg.speed_unit == 2 ? 0.00194384449 : 0.001;
-}
-
 int set_gps_cfg_item(int num, bool skip_done_msg) {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s] num:%d", __func__, num);
@@ -378,10 +370,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
                 break;
         }
         // config_save_json(config, ublox_hw);
-        if(num == gps_cfg_speed_unit) {
-            set_speed_calibration_unit();
-        }
-        else if((num == gps_cfg_gnss || num == gps_cfg_sample_rate || num == gps_cfg_log_ubx_nav_sat || num == gps_cfg_dynamic_model) && gps && gps->ubx_device && gps->ubx_device->config_ok) {
+        if((num == gps_cfg_gnss || num == gps_cfg_sample_rate || num == gps_cfg_log_ubx_nav_sat || num == gps_cfg_dynamic_model) && gps && gps->ubx_device && gps->ubx_device->initialized) {
             if(num == gps_cfg_dynamic_model)
                 ubx_set_nav_mode(gps->ubx_device, rtc_config.nav_mode);
             else {
@@ -472,7 +461,7 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
                 if(!ret) changed = gps_cfg_stat_screens;
                 break;
             case gps_cfg_speed_unit:  // conversion m/s to km/h, for knots use 1.944
-                ret = set_hhu(item, &c_gps_cfg.speed_unit, 0);
+                ret = set_hhu(item, (uint8_t*)&c_gps_cfg.speed_unit, 0);
                 if(!ret) changed = gps_cfg_speed_unit;
                 break;
             case gps_cfg_sample_rate:  // gps_rate in Hz, 1, 2, 5 or 10Hz !!!

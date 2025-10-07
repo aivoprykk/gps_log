@@ -59,12 +59,30 @@ typedef enum {
     CFG_GPS_USER_CFG_ITEM_LIST(GPS_CFG_ENUM_PRE_L)
 } gps_cfg_item_t;
 
+#define SPEED_UNIT_VAL_LIST(l) l(msec) l(kmh) l(knot) l(mph)
+typedef enum {
+    SPEED_UNIT_VAL_LIST(ENUM)
+} speed_unit_item_t;
+
+inline float mm_s_to_km_h(uint32_t mm_s) { return (float)mm_s * 18.0f / 5000.0f; }
+inline float mm_s_to_knots(uint32_t mm_s) { return (float)mm_s * 463.0f / 238200.0f; }
+inline float mm_s_to_mph(uint32_t mm_s) { return (float)mm_s * 2237.0f / 100000.0f; }
+inline float mms_to_ms(uint32_t mm_s) { return (float)mm_s / 1000.0f; }
+
+inline float convert_speed(float speed, speed_unit_item_t unit) {
+    switch(unit) {
+        case kmh: return mm_s_to_km_h(speed);
+        case knot: return mm_s_to_knots(speed);
+        case mph: return mm_s_to_mph(speed);
+        default: return mms_to_ms(speed);
+    }
+}
+
 #define GPS_UBX_FILE_MAX 22
 
 typedef struct gps_user_cfg_s {
     uint8_t file_date_time;  // type of filenaming, with MAC adress or datetime
-    uint8_t speed_unit;      // 0 = m/s, 1 = km/h, 2 = knots    
-    float speed_calibration; // conversion m/s to km/h, for knots use 1.944
+    speed_unit_item_t speed_unit;      // 0 = m/s, 1 = km/h, 2 = knots    
     float timezone;          // choice for timedifference in hours with UTC, for Belgium 1 or 2 (summertime)
     char ubx_file[GPS_UBX_FILE_MAX];    // your preferred filename
     uint16_t stat_screens;    // choice for stats field when no speed, here stat_screen 1, 2 and 3 will be active
@@ -74,8 +92,7 @@ typedef struct gps_user_cfg_s {
 
 #define GPS_USER_CFG_DEFAULTS() { \
     .file_date_time = 1, \
-    .speed_unit = 1, \
-    .speed_calibration = 0.0036f, \
+    .speed_unit = kmh, \
     .timezone = 2, \
     .ubx_file = "gps", \
     .stat_screens = 255U, \

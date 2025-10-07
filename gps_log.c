@@ -73,10 +73,13 @@ typedef struct {
     bool gps_task_is_running;
     TaskHandle_t gps_task_handle;
     uint8_t ubx_fail_count;
+    uint8_t gps_initialized;
+    uint8_t gps_started;
+    uint8_t gps_events_registered;
 } log_context_t;
 
 static log_context_t lctx = {.old_run_count = 0, .GPS_delay = 0, .old_nav_pvt_itow = 0, .next_time_sync = 0, .ubx_restart_requested = false, 
-                               .output_rate_swp = 0, .last_flush_time = 0, .gps_task_is_running = false, .gps_task_handle = NULL, .ubx_fail_count = 0};
+                               .output_rate_swp = 0, .last_flush_time = 0, .gps_task_is_running = false, .gps_task_handle = NULL, .ubx_fail_count = 0, .gps_initialized = 0, .gps_started = 0, .gps_events_registered = 0};
 
 gps_context_t * gps = 0;
 
@@ -171,6 +174,57 @@ uint8_t gps_has_version_set() {
     }
     return 0;
 }
+
+static void gps_buffers_init(void) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+#if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
+    gps_check_sec_buf(BUFFER_SEC_SIZE);
+#endif
+    gps_speed_metrics_init();
+    refresh_gps_speeds_by_distance();
+    /// alpha buffers depending on output rate, so allocation after ubx setup
+}
+
+#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
+static void gps_on_sample_rate_change(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    /// reallocate alfa buffer depending on output rate
+    gps_free_alfa_buf();
+    gps_check_alfa_buf(ALPHA_BUFFER_SIZE(rtc_config.output_rate));
+}
+
+static void gps_free_sec_buffers(void) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
+    gps_free_alfa_buf();
+#endif
+#if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
+    gps_free_sec_buf();
+#endif
+}
+
+static void gps_buffers_free(void) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    gps_free_sec_buffers();
+    gps_speed_metrics_free();
+}
+
+static void gps_on_ubx_deinit(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    gps_free_sec_buffers();
+}
+
+#endif // CONFIG_GPS_LOG_STATIC_A_BUFFER || CONFIG_GPS_LOG_STATIC_S_BUFFER
 
 static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
     struct ubx_config_s *ubx_dev = gps->ubx_device;
@@ -364,11 +418,11 @@ static void gpsTask(void *parameter) {
             // ILOG(TAG, "[%s] Gps init ... (%lums)", __FUNCTION__, mt);
             if (mt > SEC_TO_MS(10)) { // 5 seconds
                 if(ubx_dev->ready){
-                    ubx_off(ubx_dev);
+                    ubx_off(ubx_dev); // uart deinit
                     delay_ms(100);
                     lctx.ubx_fail_count++;
                 }
-                ubx_setup(ubx_dev);
+                ubx_setup(ubx_dev); // uart init and reset
             }
             if(lctx.ubx_fail_count>50) {
                 if(!gps_has_version_set()) { // only when no hwVersion is received
@@ -422,39 +476,14 @@ static void gpsTask(void *parameter) {
     vTaskDelete(NULL);
 }
 
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
-static void gps_on_sample_rate_change(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
-    struct ubx_config_s *ubx = (struct ubx_config_s *)handler_arg;
-    if (ubx) {
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
-        gps_check_alfa_buf(ALPHA_BUFFER_SIZE(ubx->rtc_conf->output_rate));
-#endif
-#if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
-        gps_check_sec_buf(BUFFER_SEC_SIZE);
-#endif
-        gps_speed_metrics_init();
-        refresh_gps_speeds_by_distance();
-    }
-}
-
-static void gps_on_ubx_deinit(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
-    gps_free_alfa_buf();
-#endif
-#if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
-    gps_free_sec_buf();
-#endif
-}
-#endif
-
-void gps_task_start() {
+static void gps_task_start() {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
 #endif
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
-    esp_event_handler_register(UBX_EVENT, UBX_EVENT_SAMPLE_RATE_CHANGED, &gps_on_sample_rate_change, gps->ubx_device);
-    esp_event_handler_register(UBX_EVENT, UBX_EVENT_UART_DEINIT_DONE, &gps_on_ubx_deinit, NULL);
-#endif
+    if(lctx.gps_task_is_running) {
+        ELOG(TAG, "[%s] already running!", __func__);
+        return;
+    }
     if(!lctx.gps_task_is_running) {
         lctx.gps_task_is_running = true;
         xTaskCreatePinnedToCore(gpsTask,   /* Task function. */
@@ -470,7 +499,7 @@ void gps_task_start() {
     }
 }
 
-void gps_task_stop() {
+static void gps_task_stop() {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
 #endif
@@ -487,23 +516,16 @@ void gps_task_stop() {
             lctx.gps_task_handle = 0;
         }
     }
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
-    esp_event_handler_unregister(UBX_EVENT, ESP_EVENT_ANY_ID, &gps_on_sample_rate_change);
-    esp_event_handler_unregister(UBX_EVENT, ESP_EVENT_ANY_ID, &gps_on_ubx_deinit);
-#endif
-#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
-    gps_free_alfa_buf();
-#endif
-#if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
-    gps_free_sec_buf();
-#endif
-    gps_speed_metrics_free();
 #if (C_LOG_LEVEL < 2)
     ILOG(TAG, "[%s] done.", __func__);
 #endif
 }
 
 void gps_init(gps_context_t * _gps) {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    if(lctx.gps_initialized) return;
     gps = _gps;
     init_gps_context_fields(gps);
 #if defined(GPS_TIMER_STATS)
@@ -516,16 +538,40 @@ void gps_init(gps_context_t * _gps) {
             ELOG(TAG, "[%s] Failed to create periodic timer", __func__);
         }
 #endif
+    lctx.gps_initialized = 1;
 }
 
 void gps_deinit(void) {
 #if (C_LOG_LEVEL < 3)
     ILOG(TAG, "[%s]", __func__);
 #endif
+    if(!lctx.gps_initialized) return;
 #if defined(GPS_TIMER_STATS)
     esp_timer_delete(gps_periodic_timer);
 #endif
     deinit_gps_context_fields(gps);
+    lctx.gps_initialized = 0;
+}
+
+int gps_start() {
+#if (C_LOG_LEVEL < 3)
+    ILOG(TAG, "[%s]", __func__);
+#endif
+    if(!gps) return 0;
+    struct ubx_config_s *ubx_dev = gps->ubx_device;
+    if (!ubx_dev) return 0;
+    if (lctx.gps_started) return 0;
+    int ret = 0;
+#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
+    if(!lctx.gps_events_registered) {
+        esp_event_handler_register(UBX_EVENT, UBX_EVENT_SAMPLE_RATE_CHANGED, &gps_on_sample_rate_change, gps->ubx_device);
+        lctx.gps_events_registered = 1;
+    }
+#endif
+    gps_buffers_init();
+    gps_task_start();
+    lctx.gps_started = 1;
+    return ret;
 }
 
 int gps_shut_down() {
@@ -535,9 +581,8 @@ int gps_shut_down() {
     if(!gps) return 0;
     struct ubx_config_s *ubx_dev = gps->ubx_device;
     if (!ubx_dev) return 0;
+    if (!lctx.gps_started) return 0;
     int ret = 0;
-    if(!ubx_dev)
-        goto end;
     ubx_dev->shutdown_requested = 1;
     if (ubx_dev->ready) {
         gps->signal_ok = false;
@@ -553,13 +598,21 @@ int gps_shut_down() {
         }
     }
     gps_task_stop();
+#if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
+    if (lctx.gps_events_registered) {
+        esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_SAMPLE_RATE_CHANGED, &gps_on_sample_rate_change);
+        lctx.gps_events_registered = 0;
+    }
+#endif
     ubx_off(ubx_dev);
+    gps_buffers_free();
+
     gps->time_set = 0;
     if(lctx.output_rate_swp) {
         rtc_config.output_rate = lctx.output_rate_swp;
         lctx.output_rate_swp = 0;
     }
-    end:
+    lctx.gps_started = 0;
     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_SHUT_DOWN_DONE, NULL, 0, portMAX_DELAY);
     // if (!no_sleep) {
     //     go_to_sleep(3);  // got to sleep after 5 s, this to prevent booting when
