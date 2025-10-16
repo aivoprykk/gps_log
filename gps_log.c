@@ -86,7 +86,7 @@ gps_context_t * gps = 0;
 ESP_EVENT_DEFINE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
 
 #if (C_LOG_LEVEL < 2)
-const char * const _gps_log_event_strings[] = {
+static const char * const _gps_log_event_strings[] = {
     GPS_LOG_EVENT_LIST(STRINGIFY)
 };
 const char * gps_log_event_strings(int id) {
@@ -244,9 +244,6 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                         gps->first_fix = (now - ubx_dev->ready_time);
                         WLOG(TAG, "[%s] First GPS Fix after %.01f sec.", __FUNCTION__, MS_TO_SEC(gps->first_fix));
                         esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FIRST_FIX, NULL, 0, portMAX_DELAY);
-                        // if(!m_context_rtc.RTC_screen_auto_refresh) {
-                        //     lcd_ui_task_resume_for_times(1, -1, -1, true);
-                        // }
                     }
                     if (gps->signal_ok && lctx.GPS_delay < UINT8_MAX) {
                         lctx.GPS_delay++; // delay max is 255 ubx messages for now
@@ -268,7 +265,6 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                             }
                         }  // Only speed > 0 if speed is greater than 1m/s + sACC < 1 + sat < 5 + speed > 35 m/s !!!
                     }
-                    //printf("need to be for speed: %x %x %"PRIu32" %"PRIu32"\n", m_context.sdOK, gps->time_set, ubxMessage->count_nav_pvt, ubxMessage->count_nav_pvt_prev);
                     if ((gps->time_set) && (ubxMessage->count_nav_pvt > 10) && (ubxMessage->count_nav_pvt != ubxMessage->count_nav_pvt_prev)) {
                         ubxMessage->count_nav_pvt_prev = ubxMessage->count_nav_pvt;
                         // float sAcc=nav_pvt->sAcc/1000;
@@ -304,9 +300,6 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                                 gps->gps_is_moving = true;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_MOVING, NULL, 0, portMAX_DELAY);
                             }
-                            // if(!m_context_rtc.RTC_screen_auto_refresh && lcd_ui_task_is_paused()) {
-                            //     lcd_ui_task_resume();
-                            // }
                         }
                         else {
                             if(gps->gps_is_moving) {
@@ -329,17 +322,7 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                                     }
                                 }
                             }
-                            // if(!m_context_rtc.RTC_screen_auto_refresh) {
-                            // if(!lcd_ui_task_is_paused()) {   
-                            //     lcd_ui_task_pause();
-                            //     goto showscr;
-                            // }
-                            // if(record_done < 240) {
-                            //     showscr:
-                            //     lcd_ui_task_resume_for_times(1, -1, -1, true);
-                            // }
-                            // }
-                        }
+                       }
                         ret = push_gps_data(gps, gps_data, FROM_10M(nav_pvt->lat), FROM_10M(nav_pvt->lon), gps->gps_speed);
                         if(ret){
                         #if defined(GPS_TIMER_STATS)
@@ -427,7 +410,6 @@ static void gpsTask(void *parameter) {
             if(lctx.ubx_fail_count>50) {
                 if(!gps_has_version_set()) { // only when no hwVersion is received
                     esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_REQUEST_RESTART, NULL, 0, portMAX_DELAY);
-                    //m_context.request_restart = true;
                     ILOG(TAG, "[%s] Gps init failed, restart requested.", __FUNCTION__);
                 }
                 else

@@ -22,7 +22,6 @@
 // extern char SW_version[16];
 
 //extern struct UBXMessage ubxMessage;
-//extern struct context_s m_context;
 
 struct GPY_Header gpy_header = {
     .Type_identifier = 0xF0,  // Frame identifier, header = 0xF0

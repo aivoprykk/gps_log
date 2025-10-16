@@ -3,8 +3,6 @@
 #include "numstr.h"
 
 #if defined(CONFIG_GPS_LOG_ENABLED)
-// extern struct context_s m_context;
-// extern struct context_rtc_s m_context_rtc;
 
 size_t get_display_fld_str(const screen_f_t *fld, char *p1, size_t (*fn)(double, char *)) {
     if (fld->type == SCR_TYPE_FLOAT) {
