@@ -118,9 +118,7 @@ void log_err(const gps_context_t *context, const char *message) {
 // }
 
 gps_log_file_config_t *log_config_init() {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] partno: %hhu", __func__, vfs_ctx.gps_log_part);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "partno: %hhu", vfs_ctx.gps_log_part);
     strbf_t buf;
     strbf_inits(&buf, log_config.base_path, ESP_VFS_PATH_MAX+1);
     if(vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point) {
@@ -129,9 +127,7 @@ gps_log_file_config_t *log_config_init() {
     strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
     }
     strbf_finish(&buf);
-#if (C_LOG_LEVEL < 2)
-    DLOG(TAG, "[%s] log path: %s", __func__, &log_config.base_path[0]);
-#endif
+    FUNC_ENTRY_ARGSD(TAG, "log path: %s", &log_config.base_path[0]);
     return &log_config;
 }
 
@@ -163,9 +159,7 @@ bool log_files_opened(gps_context_t *context) {
 }
 
 void open_files(gps_context_t *context) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!context) return;
     if (context->files_opened)
         return;
@@ -238,9 +232,7 @@ void open_files(gps_context_t *context) {
     if(!gps_log_file_bits_check(config->log_file_bits)) // at least one file must be opened
         SETBIT(config->log_file_bits, SD_SBP);
     for(uint8_t i = 0; i < SD_FD_END; i++) {
-#if (C_LOG_LEVEL < 2)
-        DLOG(TAG, "[%s] opening %s", __func__, config->filenames[i]);
-#endif
+        FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
         if (GETBIT(config->log_file_bits, i)) {
             fn = 
 #if defined(GPS_LOG_ENABLE_GPY)
@@ -249,9 +241,7 @@ void open_files(gps_context_t *context) {
             i == SD_UBX ? ".ubx" : i == SD_SBP ? ".sbp" : i == SD_GPX ? ".gpx" : ".txt";
             strcpy(config->filenames[i], config->filename_NO_EXT);
             strcat(config->filenames[i], fn);
-#if (C_LOG_LEVEL < 2)
-            DLOG(TAG, "[%s] opening %s", __func__, config->filenames[i]);
-#endif
+            FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
 #if defined(CONFIG_LOGGER_VFS_ENABLED)
             GET_FD(i) = s_open(config->filenames[i], config->base_path, FILE_APPEND);
             if(GET_FD(i)<=0) {
@@ -268,9 +258,7 @@ void open_files(gps_context_t *context) {
 }
 
 void close_files(gps_context_t *context) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!context) return;
     if (!context->files_opened) {
         return;
@@ -384,9 +372,7 @@ void log_to_file(gps_context_t *context) {
 // }
 
 static void session_info(const gps_context_t *context, struct gps_data_s *G) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!context) return;
     if (!context->files_opened) {
         ELOG(TAG, "[%s] files not open", __FUNCTION__);
@@ -469,9 +455,7 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     if (ublox_hw > UBX_TYPE_M8)
         strbf_sprintf(&sb, "%02x", ubxMessage->ubxId.ubx_id_6);
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-#if (C_LOG_LEVEL < 2)
-    DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
-#endif
+    FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
     
     // Release buffers
     release_gps_buffer(&msg_handle);
@@ -497,9 +481,7 @@ static void result_speed_avg(gps_speed_t *speed, strbf_t *sb, const char * units
 }
 
 static void gps_metrics_result_dist(struct gps_speed_by_dist_s *me) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!me) return;
     if (!gps->files_opened) {
         ELOG(TAG, "[%s] files not open", __FUNCTION__);
@@ -546,9 +528,7 @@ static void gps_metrics_result_dist(struct gps_speed_by_dist_s *me) {
         strbf_putl(&sb, me->distance_window);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-#if (C_LOG_LEVEL < 2)
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
-#endif
+        FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
         strbf_reset(&sb);
     }
     
@@ -558,9 +538,7 @@ static void gps_metrics_result_dist(struct gps_speed_by_dist_s *me) {
 }
 
 static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!me) return;
     if (!gps->files_opened) {
         ELOG(TAG, "[%s] files not open", __FUNCTION__);
@@ -608,9 +586,7 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
         } else
             strbf_puts(&sb, "\n");
         WRITETXT(message, sb.cur - sb.start);
-#if (C_LOG_LEVEL < 2)
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
-#endif
+        FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
         strbf_reset(&sb);
     }
     
@@ -620,9 +596,7 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
 }
 
 static void gps_metrics_result_alfa(struct gps_speed_by_dist_s *me) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!me || !me->alfa) return;
     if (!gps->files_opened) {
         ELOG(TAG, "[%s] files not open", __FUNCTION__);
@@ -668,9 +642,7 @@ static void gps_metrics_result_alfa(struct gps_speed_by_dist_s *me) {
         strbf_putl(&sb, A->distance_window);
         strbf_puts(&sb, "\n");
         WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-#if (C_LOG_LEVEL < 2)
-        DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
-#endif
+        FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
         strbf_reset(&sb);
     }
     
@@ -680,9 +652,7 @@ static void gps_metrics_result_alfa(struct gps_speed_by_dist_s *me) {
 }
 
 static void gps_metrics_result_max(void) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if (!gps->files_opened) {
         ELOG(TAG, "[%s] files not open", __FUNCTION__);
         return;
@@ -717,9 +687,7 @@ static void gps_metrics_result_max(void) {
     strbf_puts(&sb, strings[0]);
     strbf_puts(&sb, "\n");
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-#if (C_LOG_LEVEL < 2)
-    DLOG(TAG, "[%s] %s", __FUNCTION__, sb.start);
-#endif
+    FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
     strbf_reset(&sb);
     
     // Release buffers
@@ -728,9 +696,7 @@ static void gps_metrics_result_max(void) {
 }
 
 void gps_speed_metrics_save_session(void) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if (GETBIT(gps->log_config->log_file_bits, SD_TXT) && gps->log_config->filefds[SD_TXT] > 0) {
         session_info(gps, &gps->Ublox);
         gps_metrics_result_max();

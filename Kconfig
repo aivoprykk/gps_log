@@ -49,7 +49,9 @@ menu "Logger GPS Log Module Configuration"
         help
             Specify how important log should be added.
         config GPS_LOG_LEVEL_TRACE
-            bool "TRACE: A lot of logs to give detailed information"
+            bool "TRACE: Log more to give detailed information"
+        config GPS_LOG_LEVEL_DEBUG
+            bool "DEBUG: Log general debug info"
         config GPS_LOG_LEVEL_INFO
             bool "INFO: Log important events"
         config GPS_LOG_LEVEL_WARN
@@ -64,11 +66,12 @@ menu "Logger GPS Log Module Configuration"
     config GPS_LOG_LEVEL
         int
         default 0 if GPS_LOG_LEVEL_TRACE
-        default 1 if GPS_LOG_LEVEL_INFO
-        default 2 if GPS_LOG_LEVEL_WARN
-        default 3 if GPS_LOG_LEVEL_ERROR
-        default 4 if GPS_LOG_LEVEL_USER
-        default 5 if GPS_LOG_LEVEL_NONE
+        default 1 if GPS_LOG_LEVEL_DEBUG
+        default 2 if GPS_LOG_LEVEL_INFO
+        default 3 if GPS_LOG_LEVEL_WARN
+        default 4 if GPS_LOG_LEVEL_ERROR
+        default 5 if GPS_LOG_LEVEL_USER
+        default 6 if GPS_LOG_LEVEL_NONE
     endif
     choice
         bool "Json library"

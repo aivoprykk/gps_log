@@ -27,7 +27,7 @@ gps_p_context_t log_p_lctx = GPS_P_CONTEXT_INIT;
 void unalloc_buffer(void **buf) {
     if (buf && *buf) {
         heap_caps_free(*buf), *buf = NULL;
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
         WLOG(TAG, "[%s] Unallocated buffer", __func__);
 #endif
     }
@@ -42,7 +42,7 @@ bool check_and_alloc_buffer(void **buf, size_t required_count, size_t elem_size,
     *buf = heap_caps_malloc(required_count * elem_size, caps);
     if (*buf && current_count) {
         *current_count = required_count;
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
         WLOG(TAG, "[%s] Allocated buffer of size %zu", __func__, required_count * elem_size);
 #endif
         return true;
@@ -54,9 +54,7 @@ bool check_and_alloc_buffer(void **buf, size_t required_count, size_t elem_size,
 
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
 void gps_free_alfa_buf() {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(log_p_lctx.alfa_buf_size){
         unalloc_buffer((void **)&log_p_lctx.buf_sec_speed);
         log_p_lctx.alfa_buf_size = 0;
@@ -64,14 +62,12 @@ void gps_free_alfa_buf() {
 }
 
 void gps_check_alfa_buf(size_t new_size) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     check_and_alloc_buffer((void **)&log_p_lctx.alfa_buf, new_size, sizeof(gps_point_t), &log_p_lctx.alfa_buf_size, MALLOC_CAP_DMA);
     if (log_p_lctx.alfa_buf) {
         memset(log_p_lctx.alfa_buf, 0, new_size);
     }
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
     else {
         WLOG(TAG, "[%s] Failed to allocate alfa buffer of size %zu", __func__, new_size);
     }
@@ -81,9 +77,7 @@ void gps_check_alfa_buf(size_t new_size) {
 
 #if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
 void gps_free_sec_buf() {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] Freeing sec speed buffer", __func__);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "Freeing sec speed buffer");
     if (log_p_lctx.buf_sec_speed_size) {
         unalloc_buffer((void **)&log_p_lctx.buf_sec_speed);
         log_p_lctx.buf_sec_speed_size = 0;
@@ -91,9 +85,7 @@ void gps_free_sec_buf() {
 }
 
 void gps_check_sec_buf(size_t new_size) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     check_and_alloc_buffer((void **)&log_p_lctx.buf_sec_speed, new_size, sizeof(int16_t), &log_p_lctx.buf_sec_speed_size, MALLOC_CAP_DMA);
     // Ensure the buffer size is at least 48 elements (96 bytes) and not larger than UINT16_MAX
     // This is to ensure that the buffer can hold at least 48 speed values (for 1 second at 10Hz)
@@ -104,7 +96,7 @@ void gps_check_sec_buf(size_t new_size) {
     if (log_p_lctx.buf_sec_speed) {
         memset(log_p_lctx.buf_sec_speed, 0, new_size * sizeof(int16_t));
     }
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
     else {
         WLOG(TAG, "[%s] Failed to allocate sec speed buffer of size %zu", __func__, new_size);
     }
@@ -205,9 +197,7 @@ int32_t gps_last_sec_speed_smoothed(uint8_t window_size) {
 
 
 void init_gps_context_fields(gps_context_t *ctx) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!ctx) return;
     init_gps_data(&ctx->Ublox);  // create an object storing GPS_data !
     init_gps_sat_info(&ctx->Ublox_Sat);  // create an object storing GPS_SAT info !
@@ -236,9 +226,7 @@ void init_gps_context_fields(gps_context_t *ctx) {
 }
 
 void deinit_gps_context_fields(gps_context_t *ctx) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!ctx) return;
     if (ctx->ubx_device != NULL){
         ubx_config_delete(ctx->ubx_device);
@@ -281,12 +269,10 @@ static esp_err_t gps_data_printf(struct gps_data_s *me) {
 }
 #endif
 
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
 #include "strbf.h"
 void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] %hhu", __func__, changed);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "%hhu", changed);
     ubx_config_t *ubx = context->ubx_device;
     const char * bstr = " nav_mode changed ";
     if(changed) {
@@ -412,7 +398,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     // !!******************************************************
     update_sec_speed_buffer(gSpeed, sample_rate);
     xSemaphoreGive(log_p_lctx.xMutex);
-#if (C_LOG_LEVEL < 3)
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
     WLOG(TAG, "-- gSpeed: %lu, sAcc: %lu, numSv: %hhu --", gSpeed, ubxMessage->navPvt.sAcc, ubxMessage->navPvt.numSV);
 #endif
     return ESP_OK;
@@ -420,9 +406,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
 
 // constructor for GPS_data
 struct gps_data_s *init_gps_data(struct gps_data_s *me) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     memset(me, 0, sizeof(struct gps_data_s));
     log_p_lctx.index_gspeed = UINT32_MAX;  // start at 0 on first pass !!
     log_p_lctx.index_sec = UINT32_MAX;  // start at 0 on first pass !!

@@ -24,9 +24,7 @@ static esp_err_t gps_sat_info_printf(const struct gps_sat_info_s *me) {
 
 // constructor for SAT_info
 struct gps_sat_info_s *init_gps_sat_info(struct gps_sat_info_s *me) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     memset(me, 0, sizeof(struct gps_sat_info_s));
     me->index_sat_info = 0;
     return me;

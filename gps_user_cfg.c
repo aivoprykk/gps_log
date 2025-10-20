@@ -101,9 +101,7 @@ static void gps_cfg_unlock() {
 }
 
 struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_s *item) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] num:%d", __func__, num);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "num:%d", num);
     if(!item) return 0;
     if(gps_cfg_lock(timeout_max) == pdTRUE) {
         if(num>=0 && num<gps_stat_screen_item_count) {
@@ -119,9 +117,7 @@ struct m_config_item_s * get_stat_screen_cfg_item(int num, struct m_config_item_
 }
 
 int set_stat_screen_cfg_item(int num) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] num:%d", __func__, num);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "num:%d", num);
     if(num>=gps_stat_screen_item_count) return 0;
     if(gps_cfg_lock(timeout_max) == pdTRUE) {
         uint16_t val = c_gps_cfg.stat_screens;
@@ -138,9 +134,7 @@ int set_stat_screen_cfg_item(int num) {
 }
 
 struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] num:%d", __func__, num);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "num:%d", num);
     if(!item) return 0;
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) num = CFG_GPS_ITEM_BASE;
     item->name = config_gps_items[CFG_TO_BASE(num)];
@@ -243,9 +237,7 @@ struct m_config_item_s * get_gps_cfg_item(int num, struct m_config_item_s *item)
 }
 
 void gps_config_fix_values(void) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     if(!gps_log_file_bits_check(log_config.log_file_bits))
         SETBIT(log_config.log_file_bits, SD_SBP);
     if(rtc_config.gnss == 0) {
@@ -254,16 +246,12 @@ void gps_config_fix_values(void) {
 }
 
 static void set_gps_time_out_msg(void) {
-#if C_LOG_LEVEL < 3
-    ILOG(TAG, "[%s]", __func__);
-#endif
+    FUNC_ENTRY(TAG);
     gps->time_out_gps_msg = HZ_TO_MS(rtc_config.output_rate) + 75;  // max time out = 175 ms
 }
 
 int set_gps_cfg_item(int num, bool skip_done_msg) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] num:%d", __func__, num);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "num:%d", num);
     if(num < CFG_GPS_ITEM_BASE || num > CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) return 255;
     const char *name = config_gps_items[CFG_TO_BASE(num)];
     struct gps_user_cfg_evt_data_s evt_data = {num, 0};
@@ -377,9 +365,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
                 if(num == gps_cfg_sample_rate)
                     set_gps_time_out_msg();
                 ubx_set_ggnss_and_rate(gps->ubx_device, rtc_config.gnss, rtc_config.output_rate);
-#if C_LOG_LEVEL < 3
                 ILOG(TAG, "[%s] set gnss: %d, rate: %d", __func__, rtc_config.gnss, rtc_config.output_rate);
-#endif
             }
         }
         gps_cfg_unlock();
@@ -390,9 +376,7 @@ int set_gps_cfg_item(int num, bool skip_done_msg) {
 }
 
 uint8_t gps_cfg_get_pos(const char *str) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] str: %s", __func__, str ? str : "-");
-#endif
+    FUNC_ENTRY_ARGS(TAG, "str: %s", str ? str : "-");
     if(!str) {
         return 254;
     }
@@ -431,9 +415,7 @@ uint8_t gps_cfg_get_pos(const char *str) {
 }
 
 uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] pos: %hhu", __func__, pos);
-#endif
+    FUNC_ENTRY_ARGS(TAG, "pos: %hhu", pos);
     if (!el) {
         return 254;
     }
@@ -527,9 +509,7 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
 }
 
 int gps_config_set(const char *str, void *root, uint8_t force) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG,"[%s] name: %s",__func__, str ? str : "-");
-#endif
+    FUNC_ENTRY_ARGS(TAG,"name: %s", str ? str : "-");
     if (!root)  return 254;
     const char *var = 0;
     uint8_t changed = 255;
@@ -569,9 +549,7 @@ err:
 }
 
 esp_err_t gps_config_decode(const char *json) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG,"[%s]",__func__);
-#endif
+    FUNC_ENTRY(TAG);
     int ret = ESP_OK;
 #if defined(CONFIG_GPS_LOG_USE_CJSON)
     cJSON *root = cJSON_Parse(json);
@@ -701,9 +679,7 @@ static uint8_t add_from_list(strbf_t *lsb, const char * const *list, size_t len)
 }
 
 uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG,"[%s] pos: %hhu",__func__, pos);
-#endif
+    FUNC_ENTRY_ARGS(TAG,"pos: %hhu", pos);
     if (!lsb) return 254;
     if(pos < CFG_GPS_ITEM_BASE || pos >= CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) {
         return 255;
@@ -902,9 +878,7 @@ uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
 }
 
 char *gps_config_get(const char *name, struct strbf_s *lsb, uint8_t mode) {
-#if (C_LOG_LEVEL < 3)
-    ILOG(TAG, "[%s] name:%s", __func__, name ? name : "-");
-#endif
+    FUNC_ENTRY_ARGS(TAG, "name:%s", name ? name : "-");
     if(!lsb) return NULL;
     uint8_t pos = gps_cfg_get_pos(name);
     if (pos == 255) {
