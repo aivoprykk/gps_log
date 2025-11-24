@@ -1,17 +1,17 @@
 
+#include "log_private.h"
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/unistd.h>
 
-#include "esp_log.h"
-
 #include "sbp.h"
 #include "ubx_msg.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
-#include "log_private.h"
 #include "ubx.h"
 
 //static const char* TAG = "sbp";
@@ -55,7 +55,7 @@ void log_header_SBP(struct gps_context_s * context) {
 void log_SBP(struct gps_context_s * context) {
     if (NOSBP)
         return;
-    const struct ubx_msg_s *ubxMessage = &context->ublox_config->ubx_msg;
+    const struct ubx_msg_s *ubxMessage = &context->ubx_device->ubx_msg;
     uint32_t year = ubxMessage->navPvt.year;
     uint8_t month = ubxMessage->navPvt.month;
     uint8_t day = ubxMessage->navPvt.day;
@@ -88,3 +88,5 @@ void log_SBP(struct gps_context_s * context) {
     WRITESBP(&sbp_frame, 32 * sizeof(uint8_t));
     // fprintf(file, (const uint8_t *)&sbp_frame,32);
 }
+
+#endif

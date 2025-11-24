@@ -1,11 +1,11 @@
 #ifndef SBP_H
 #define SBP_H 1
 
-#include <stdint.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include <stdint.h>
 
 /*Function declarations*/
 //void log_header_SBP(File file);

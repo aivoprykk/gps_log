@@ -1,7 +1,9 @@
+#include "log_private.h"
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
+
 #include "gps_log_file.h"
 #include "ubx.h"
 #include "gps_data.h"
-#include "log_private.h"
 
 void log_ubx(gps_context_t *context, ubx_msg_t * ubxMessage, bool log_ubx_nav_sat) {
     const uint8_t i[2] = {0xB5, 0x62};
@@ -21,3 +23,5 @@ void log_ubx(gps_context_t *context, ubx_msg_t * ubxMessage, bool log_ubx_nav_sa
         WRITEUBX(&ubxMessage->navDOP, sizeof(ubxMessage->navDOP));
     }
 }
+
+#endif

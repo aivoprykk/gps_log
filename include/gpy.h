@@ -25,11 +25,11 @@ SOFTWARE.
 */
 
 
-#include <stdint.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include <stdint.h>
 
 //char gpy_Tx[256]; 
 //Struct definitions
