@@ -166,7 +166,7 @@ static const gps_speed_metrics_cfg_t initial_speed_metrics_sets[] = {
 
 static inline uint32_t convert_distance_to_mm(int distance) {
     // Use original macro logic to ensure identical behavior
-    return M_TO_MM(distance) * gps->ubx_device->rtc_conf->output_rate;
+    return M_TO_MM(distance) * g_rtc_config.ubx.output_rate;
 }
 
 static inline gps_speed_t * gps_select_speed_instance(int num, uint8_t flags) {
@@ -782,7 +782,7 @@ static inline void move_distance_window(struct gps_speed_by_dist_s *me) {
 float update_speed_by_distance(struct gps_speed_by_dist_s *me) {
     // printf("[%s]\n", __func__);
     if(!me) return 0.0f;
-    // uint32_t distance_window = convert_distance_to_mm(me->distance_window, gps->ubx_device->rtc_conf->output_rate);  // Note that m_distance_window should now be in mm, so multiply by 1000 and consider the sample_rate !!
+    // uint32_t distance_window = convert_distance_to_mm(me->distance_window, g_rtc_config.ubx.output_rate);  // Note that m_distance_window should now be in mm, so multiply by 1000 and consider the sample_rate !!
     me->distance = me->distance + log_p_lctx.buf_gspeed[buf_index(log_p_lctx.index_gspeed)];  // the resolution of the distance is 0.1 mm
                                                                                   // the max int32  is 2,147,483,647 mm eq 214,748.3647 meters eq ~214 kilometers !!
     if ((log_p_lctx.index_gspeed - me->m_index) >= log_p_lctx.buf_gspeed_size) {  // controle buffer overflow
@@ -791,7 +791,7 @@ float update_speed_by_distance(struct gps_speed_by_dist_s *me) {
         me->m_index = log_p_lctx.index_gspeed;
     }
     move_distance_window(me);
-    // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(me->distance, gps->ubx_device->rtc_conf->output_rate), me->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
+    // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(me->distance, g_rtc_config.ubx.output_rate), me->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
     if(store_speed_by_dist(me)) {  // store the speed if it is greater than 0
         store_dist_data(me);  // store the data in the speed struct
     }
@@ -931,7 +931,7 @@ static inline bool store_avg_speed_by_time_optimized(struct gps_speed_by_time_s 
 
 float update_speed_by_time(struct gps_speed_by_time_s *me) {
     if(!me) return 0.0f;
-    const uint8_t sample_rate = gps->ubx_device->rtc_conf->output_rate;
+    const uint8_t sample_rate = g_rtc_config.ubx.output_rate;
     // uint32_t actual_run = gps->run_count;
     const uint32_t time_window_delta = me->time_window * sample_rate;
     if(store_avg_speed_by_time_optimized(me, time_window_delta, sample_rate))
@@ -1193,7 +1193,7 @@ float update_speed_by_alfa(struct gps_speed_by_dist_s *m) {
             }
             store_alfa_data(me, m->distance);
         }
-        // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(m->distance, gps->ubx_device->rtc_conf->output_rate), me->base->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
+        // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(m->distance, g_rtc_config.ubx.output_rate), me->base->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
     // }
     // if((alfa_speed_max>0.0f)&(straight_dist_square>(alfa_circle_square*1.4))){ //alfa max only resets to 0 if 500 m after the jibe, straight distance after the jibe
     if (gps->run_count != me->speed.nr_prev_run) {
@@ -1239,8 +1239,7 @@ static inline bool detect_jibe(float heading_diff) {
 uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
     // printf("[%s]\n", __func__);
     if(!context) return 0;  // return 0 if context is NULL
-    ubx_config_t *ubx = context->ubx_device;
-    const uint8_t sample_rate = ubx->rtc_conf->output_rate;
+    const uint8_t sample_rate = g_rtc_config.ubx.output_rate;
 
     log_p_lctx.heading = unwrap_heading_optimized(actual_heading, &log_p_lctx.old_heading, &log_p_lctx.delta_heading);    
     
@@ -1317,7 +1316,7 @@ float alfa_indicator(float actual_heading) {
     gps_point_t cur = { log_p_lctx.alfa_buf[idx_cur].latitude, log_p_lctx.alfa_buf[idx_cur].longitude};
 
     // Position 2 seconds ago
-    int32_t idx_prev = al_buf_index(log_p_lctx.index_gspeed - (2 * gps->ubx_device->rtc_conf->output_rate));
+    int32_t idx_prev = al_buf_index(log_p_lctx.index_gspeed - (2 * g_rtc_config.ubx.output_rate));
     gps_point_t prev = {log_p_lctx.alfa_buf[idx_prev].latitude, log_p_lctx.alfa_buf[idx_prev].longitude};
 
     gps->alfa_exit = point_to_line_distance_optimized(&log_p_lctx.alfa_p1, &cur, &prev); // turn-250m point distance to line {cur,cur-2sec}

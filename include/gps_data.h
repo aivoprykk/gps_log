@@ -66,7 +66,7 @@ typedef struct gps_context_s {
 
     bool files_opened;
     const uint8_t * mac_address;
-    struct ubx_config_s *ubx_device;
+    struct ubx_ctx_s *ubx_device;
     struct gps_log_file_config_s * log_config;
     const char * SW_version;
     uint8_t record;
@@ -124,6 +124,8 @@ int get_cur_nav_mode(int nav_mode);
 
 int32_t gps_last_speed_smoothed(uint8_t average_records);
 int32_t gps_last_sec_speed_smoothed(uint8_t average_records);
+
+void gps_config_fix_values(void);
 
 #ifdef __cplusplus
 }

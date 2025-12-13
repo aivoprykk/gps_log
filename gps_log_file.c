@@ -51,6 +51,12 @@ static esp_err_t get_gps_scratch_buffer(logger_buffer_handle_t *handle) {
     return logger_buffer_pool_alloc(LOGGER_BUFFER_SMALL, LOGGER_BUFFER_USAGE_GPS_DATA, handle, portMAX_DELAY);
 }
 
+void gps_config_fix_values(void) {
+    FUNC_ENTRY(TAG);
+    if(!gps_log_file_bits_check(log_config.log_file_bits))
+        SETBIT(log_config.log_file_bits, SD_SBP);
+}
+
 // Helper function to release any GPS buffer
 static void release_gps_buffer(logger_buffer_handle_t *handle) {
     if (handle && handle->buffer) {
@@ -166,14 +172,20 @@ void open_files(gps_context_t *context) {
     gps_log_file_config_t *config = context->log_config;
     // logger_config_t *cfg = config->config;
     // save_log_file_bits(context, log_config.log_file_bits);
-    char *filename = c_gps_cfg.ubx_file;
+    // Use direct config access instead of old sconfig API
+    char str[32] = {0}, *filename = str;
+    strncpy(filename, g_rtc_config.gps.ubx_file, sizeof(str) - 1);
+    if (strlen(filename) == 0) {
+        strcpy(filename, "gps");
+    }
     while (*filename == '/' || *filename == ' ')
         ++filename;
     strbf_t sb;
-    uint8_t * open_failed = 0;
+    uint8_t *open_failed = 0;
     strbf_inits(&sb, config->filename_NO_EXT, PATH_MAX_CHAR_SIZE);
-    //*filename_NO_EXT = 0;
-    if (c_gps_cfg.file_date_time) {
+    // Use direct config access for file_date_time
+    uint8_t value = g_rtc_config.gps.file_date_time;
+    if (value != 0) {
         // struct tm tmstruct;
         // char extension[16] = ".txt";  //
         char timestamp[16];
@@ -195,12 +207,12 @@ void open_files(gps_context_t *context) {
             strbf_putc(&tsb, '0');
         strbf_putl(&tsb, tms.tm_min);
         // sprintf(timestamp, "%u%02u%02u%02u%02u", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min);
-        if (c_gps_cfg.file_date_time == 1) {
+        if (value == 1) {
             strbf_puts(&sb, filename);  // copy filename from config
             strbf_putc(&sb, '_');
             strbf_puts(&sb, timestamp);  // add timestamp
         }
-        if (c_gps_cfg.file_date_time == 2) {
+        if (value == 2) {
             strbf_puts(&sb, timestamp);  // add timestamp
             strbf_putc(&sb, '_');
             strbf_puts(&sb, filename);  // copy filename from config
@@ -282,7 +294,7 @@ void flush_files(const gps_context_t *context) {
     if (!context->files_opened) {
         return;
     }
-    if (rtc_config.output_rate <= 10) {
+    if (g_rtc_config.ubx.output_rate <= 10) {
         if (load_balance == 0) {
             log_fsync(context, SD_UBX);
         }
@@ -308,7 +320,7 @@ void flush_files(const gps_context_t *context) {
 void log_to_file(gps_context_t *context) {
     if(!context || !context->files_opened) return;
     // logger_config_t *config = context->log_config->config;
-    ubx_config_t *ubx = context->ubx_device;
+    ubx_ctx_t *ubx = context->ubx_device;
     struct nav_pvt_s * nav_pvt = &ubx->ubx_msg.navPvt;
     if (context->time_set == 1) {
         strbf_t sb;
@@ -345,7 +357,7 @@ void log_to_file(gps_context_t *context) {
         release_gps_buffer(&scratch_handle);
         
         if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
-            log_ubx(context, &ubx->ubx_msg, rtc_config.msgout_sat);
+            log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
         }
 #ifdef GPS_LOG_ENABLE_GPY
         if (GETBIT(context->log_config->log_file_bits, SD_GPY)) {
@@ -379,7 +391,7 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
         return;
     }
     // logger_config_t *config = context->log_config->config;
-    const ubx_config_t *ubx = gps->ubx_device;
+    const ubx_ctx_t *ubx = context->ubx_device;
     const ubx_msg_t * ubxMessage = &ubx->ubx_msg;
     int32_t millis = get_millis();
     strbf_t sb;
@@ -415,16 +427,16 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, MM_TO_M(G->total_distance));
     strbf_puts(&sb, " m\n");
     strbf_puts(&sb, "Sample rate : ");
-    strbf_putn(&sb, ubx->rtc_conf->output_rate);
+    strbf_putn(&sb, g_rtc_config.ubx.output_rate);
     strbf_puts(&sb, " Hz\n");
     strbf_puts(&sb, "Speed units: ");
-    strbf_puts(&sb, speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit]);
+    strbf_puts(&sb, speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit]);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Timezone : ");
-    strbf_putn(&sb, c_gps_cfg.timezone);
+    strbf_putn(&sb, g_rtc_config.gps.timezone);
     strbf_puts(&sb, " h\n");
     strbf_puts(&sb, "Dynamic model: ");
-    strbf_puts(&sb, dynamic_models[rtc_config.nav_mode==0 ? 0 : rtc_config.nav_mode-2]);
+    strbf_puts(&sb, dynamic_models[g_rtc_config.ubx.nav_mode==0 ? 0 : g_rtc_config.ubx.nav_mode-2]);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Ublox GNSS-enabled : ");
     strbf_putl(&sb, ubxMessage->monGNSS.enabled_Gnss);
@@ -447,12 +459,11 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_puts(&sb, "Ublox HW-version : ");
     strbf_puts(&sb, ubxMessage->mon_ver.hwVersion);
     strbf_puts(&sb, " \n");
-    ubx_hw_t ublox_hw = ubx->rtc_conf->hw_type;
     strbf_puts(&sb, "Ublox ");
     strbf_puts(&sb, ubx_chip_str(ubx));
     strbf_puts(&sb, " ID = ");
     strbf_sprintf(&sb,"%02x%02x%02x%02x%02x", &ubxMessage->ubxId.ubx_id_1, &ubxMessage->ubxId.ubx_id_2, &ubxMessage->ubxId.ubx_id_3, &ubxMessage->ubxId.ubx_id_4, &ubxMessage->ubxId.ubx_id_5);
-    if (ublox_hw > UBX_TYPE_M8)
+    if (ubx->hw_type > UBX_TYPE_M8)
         strbf_sprintf(&sb, "%02x", ubxMessage->ubxId.ubx_id_6);
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
     FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
@@ -504,7 +515,7 @@ static void gps_metrics_result_dist(struct gps_speed_by_dist_s *me) {
     
     *tekst = 0;
     strbf_inits(&sb, message, msg_handle.size);
-    const char * units = speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit];
+    const char * units = speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit];
     const char * unit = " M";
     result_speed_avg(&me->speed, &sb, units, unit, me->distance_window, tekst);
     for (int i = 9; i > 4; i--) {
@@ -516,7 +527,7 @@ static void gps_metrics_result_dist(struct gps_speed_by_dist_s *me) {
         time_to_char_hms((int)run->time.hour, (int)run->time.minute, (int)run->time.second, tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Distance: ");
-        f2_to_char(get_distance_m(run->data.dist.dist, gps->ubx_device->rtc_conf->output_rate), tekst);
+        f2_to_char(get_distance_m(run->data.dist.dist, g_rtc_config.ubx.output_rate), tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " Msg_nr: ");
         strbf_putl(&sb, run->data.dist.message_nr);
@@ -561,7 +572,7 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
     
     *tekst = 0;
     strbf_inits(&sb, message, msg_handle.size);
-    const char * units = speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit];
+    const char * units = speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit];
     const char * unit = " S";
     result_speed_avg(&me->speed, &sb, units, unit, me->time_window, tekst);
     // errorfile.open();
@@ -581,7 +592,7 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
         strbf_putl(&sb, run->nr);
         strbf_puts(&sb, unit);
         strbf_putl(&sb, me->time_window);
-        if (rtc_config.msgout_sat) {
+        if (g_rtc_config.ubx.msgout_sat) {
             strbf_sprintf(&sb, " CNO Max: %u Avg: %u Min: %u nr Sat: %u", run->data.time.Max_cno, run->data.time.Mean_cno, run->data.time.Min_cno, run->data.time.Mean_numSat);
         } else
             strbf_puts(&sb, "\n");
@@ -618,7 +629,7 @@ static void gps_metrics_result_alfa(struct gps_speed_by_dist_s *me) {
     char *tekst = (char*)scratch_handle.buffer;
     
     strbf_inits(&sb, message, msg_handle.size);
-    const char * units = speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit];
+    const char * units = speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit];
     const char * unit = " A";
     result_speed_avg(&A->speed, &sb, units, unit, me->distance_window, tekst);
     for (int i = 9; i > 4; i--) {
@@ -630,7 +641,7 @@ static void gps_metrics_result_alfa(struct gps_speed_by_dist_s *me) {
         f2_to_char(sqrt((float)run->data.alfa.real_distance), tekst);
         strbf_puts(&sb, tekst);
         strbf_puts(&sb, " m ");
-        strbf_putl(&sb, get_distance_m(run->data.alfa.dist, gps->ubx_device->rtc_conf->output_rate));
+        strbf_putl(&sb, get_distance_m(run->data.alfa.dist, g_rtc_config.ubx.output_rate));
         strbf_puts(&sb, " m ");
         time_to_char_hms((int)run->time.hour, (int)run->time.minute, (int)run->time.second, tekst);
         strbf_puts(&sb, tekst);
@@ -675,7 +686,7 @@ static void gps_metrics_result_max(void) {
     gps_run_t *run = &gps->max_speed;
     f3_to_char(get_spd(run->avg_speed), tekst);
     strbf_puts(&sb, tekst);
-    strbf_puts(&sb, speed_units[c_gps_cfg.speed_unit > 2 ? 2 : c_gps_cfg.speed_unit]);
+    strbf_puts(&sb, speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit]);
     strbf_putc(&sb, ' ');
     time_to_char_hms((int)run->time.hour, (int)run->time.minute, (int)run->time.second, tekst);
     strbf_puts(&sb, tekst);

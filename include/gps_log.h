@@ -15,6 +15,9 @@ int gps_shut_down(void);
 uint8_t gps_read_msg_timeout(uint8_t magnitude);
 uint8_t gps_has_version_set(void);
 
+// Test function for async UBX config change
+void test_ubx_config_change(void);
+
 #ifdef __cplusplus
 }
 #endif

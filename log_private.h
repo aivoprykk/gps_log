@@ -6,7 +6,8 @@ extern "C" {
 #endif
 #include "gps_log_file.h"
 #include "gps_data.h"
-#include "gps_user_cfg.h"
+#include "config.h"
+#include "unified_config.h"
 
 struct gps_context_s;
 
@@ -148,7 +149,7 @@ inline bool gps_log_file_bits_check(uint8_t log_file_bits) {
 }
 
 inline float get_spd(float b) {
-    return convert_speed(b, c_gps_cfg.speed_unit);
+    return convert_speed(b, g_rtc_config.gps.speed_unit);
 }
 
 inline float get_avg5(const float *arr, float (*conv)(float), int start_index) {
@@ -162,15 +163,15 @@ inline float get_display_avg(const gps_display_t *b) {
 }
 
 static inline int32_t al_buf_index(uint32_t idx) {
-    return (idx + log_p_lctx.alfa_buf_size) % log_p_lctx.alfa_buf_size;
+    return log_p_lctx.alfa_buf_size ? (idx + log_p_lctx.alfa_buf_size) % log_p_lctx.alfa_buf_size : 0;
 }
 
 static inline int32_t buf_index(uint32_t idx) {
-    return (idx + log_p_lctx.buf_gspeed_size) % log_p_lctx.buf_gspeed_size;
+    return log_p_lctx.buf_gspeed_size ? (idx + log_p_lctx.buf_gspeed_size) % log_p_lctx.buf_gspeed_size : 0;
 }
 
 static inline int32_t sec_buf_index(uint32_t idx) {
-    return (idx + log_p_lctx.buf_sec_speed_size) % log_p_lctx.buf_sec_speed_size;
+    return log_p_lctx.buf_sec_speed_size ? (idx + log_p_lctx.buf_sec_speed_size) % log_p_lctx.buf_sec_speed_size : 0;
 }
 
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)

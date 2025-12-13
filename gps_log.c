@@ -7,8 +7,6 @@
 #include "ubx_msg.h"
 #include "logger_common.h"
 #include "dstat_screens.h"
-#include "gps_user_cfg.h"
-
 #include "esp_mac.h"
 
 static const char *TAG = "gps_log";
@@ -26,38 +24,38 @@ static uint32_t prev_millis = 0, prev_msg_count = 0, prev_err_count = 0;
 static esp_timer_handle_t gps_periodic_timer = 0;
 
 static void s(void* arg) {
-    ubx_config_t *ubx_dev = (ubx_config_t *)arg;
-    if(!ubx_dev) return;
+    ubx_ctx_t *ubx_ctx = (ubx_ctx_t *)arg;
+    if(!ubx_ctx) return;
     uint32_t millis = get_millis();
     uint32_t period = millis - prev_millis;
-    uint16_t period_err_count = ubx_dev->ubx_msg.count_err-prev_err_count;
-    uint16_t period_msg_count = ubx_dev->ubx_msg.count_msg - prev_msg_count;
+    uint16_t period_err_count = ubx_ctx->ubx_msg.count_err-prev_err_count;
+    uint16_t period_msg_count = ubx_ctx->ubx_msg.count_msg - prev_msg_count;
     uint16_t period_saved_count = period_msg_count - period_err_count;
     uint16_t period_push_failed_count = push_failed_count - prev_push_failed_count;
     uint16_t period_push_ok_count = push_ok_count - prev_push_ok_count;
     uint16_t period_push_count = period_push_failed_count + period_push_ok_count;
     uint16_t period_local_nav_dop_count = local_nav_dop_count - prev_local_nav_dop_count;
-    uint16_t period_local_nav_pvt_count = ubx_dev->ubx_msg.count_nav_pvt - prev_local_nav_pvt_count;
-    uint16_t period_local_nav_sat_count = ubx_dev->ubx_msg.count_nav_sat - prev_local_nav_sat_count;
+    uint16_t period_local_nav_pvt_count = ubx_ctx->ubx_msg.count_nav_pvt - prev_local_nav_pvt_count;
+    uint16_t period_local_nav_sat_count = ubx_ctx->ubx_msg.count_nav_sat - prev_local_nav_sat_count;
     prev_millis = millis;
-    prev_msg_count = ubx_dev->ubx_msg.count_msg;
-    prev_err_count = ubx_dev->ubx_msg.count_err;
+    prev_msg_count = ubx_ctx->ubx_msg.count_msg;
+    prev_err_count = ubx_ctx->ubx_msg.count_err;
     prev_push_failed_count = push_failed_count;
     prev_push_ok_count = push_ok_count;
     prev_local_nav_dop_count = local_nav_dop_count;
-    prev_local_nav_pvt_count = ubx_dev->ubx_msg.count_nav_pvt;
-    prev_local_nav_sat_count = ubx_dev->ubx_msg.count_nav_sat;
-    printf("\n[%s] * p:%"PRIu32"ms, r:%"PRIu8"Hz\n", __FUNCTION__, period, ubx_dev->rtc_conf->output_rate);
+    prev_local_nav_pvt_count = ubx_ctx->ubx_msg.count_nav_pvt;
+    prev_local_nav_sat_count = ubx_ctx->ubx_msg.count_nav_sat;
+    printf("\n[%s] * p:%"PRIu32"ms, r:%"PRIu8"Hz\n", __FUNCTION__, period, g_rtc_config.ubx.output_rate);
     printf("[%s] >>>> period  msgcount: %6"PRIu16"  ok: %6"PRIu16" fail: %6"PRIu16" >>>>\n", __FUNCTION__, period_msg_count, period_saved_count, period_err_count);
-    printf("[%s] >>>> total   msgcount: %6"PRIu32", ok: %6"PRIu32" fail: %6"PRIu32" >>>>\n", __FUNCTION__, ubx_dev->ubx_msg.count_msg, ubx_dev->ubx_msg.count_ok, ubx_dev->ubx_msg.count_err);
+    printf("[%s] >>>> total   msgcount: %6"PRIu32", ok: %6"PRIu32" fail: %6"PRIu32" >>>>\n", __FUNCTION__, ubx_ctx->ubx_msg.count_msg, ubx_ctx->ubx_msg.count_ok, ubx_ctx->ubx_msg.count_err);
     printf("[%s] >>>> period pushcount: %6"PRIu16", ok: %6"PRIu16" fail: %6"PRIu16" >>>>\n", __FUNCTION__, period_push_count, period_push_ok_count, period_push_failed_count);
     printf("[%s] >>>> total  pushcount: %6"PRIu32", ok: %6"PRIu32" fail: %6"PRIu32" >>>>\n\n", __FUNCTION__, push_ok_count+push_failed_count, push_ok_count, push_failed_count);
     printf("[%s] >>>> period nav_dop_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_dop_count);
     printf("[%s] >>>> total  nav_dop_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, local_nav_dop_count);
     printf("[%s] >>>> period nav_pvt_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_pvt_count);
-    printf("[%s] >>>> total  nav_pvt_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_dev->ubx_msg.count_nav_pvt);
+    printf("[%s] >>>> total  nav_pvt_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_ctx->ubx_msg.count_nav_pvt);
     printf("[%s] >>>> period nav_sat_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_sat_count);
-    printf("[%s] >>>> total  nav_sat_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_dev->ubx_msg.count_nav_sat);
+    printf("[%s] >>>> total  nav_sat_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_ctx->ubx_msg.count_nav_sat);
 }
 #endif
 
@@ -100,8 +98,8 @@ const char * gps_log_event_strings(int id) {
 
 static int8_t set_time(float time_offset) {
     FUNC_ENTRY_ARGSD(TAG, "offset:%.1fh", time_offset);
-    struct ubx_config_s *ubx_dev = gps->ubx_device;
-    nav_pvt_t *pvt = &ubx_dev->ubx_msg.navPvt;
+    struct ubx_ctx_s *ubx_ctx = gps->ubx_device;
+    nav_pvt_t *pvt = &ubx_ctx->ubx_msg.navPvt;
     if (!pvt->numSV) return 0;
     if (pvt->year < 2023) { // no valid time
         WLOG(TAG, "[%s] wrong time: %hu-%hhu-%hhu", __func__, pvt->year, pvt->month, pvt->day);
@@ -163,7 +161,7 @@ uint8_t gps_read_msg_timeout(uint8_t magnitude) {
 uint8_t gps_has_version_set() {
     if(gps && gps->ubx_device) {
         if(gps->ubx_device->ready && gps->ubx_device->ubx_msg.mon_ver.hwVersion[0]) return 2;
-        if(gps->ubx_device->ready && gps->ubx_device->rtc_conf->hw_type) return 1;
+        if(gps->ubx_device->ready && gps->ubx_device->hw_type) return 1;
     }
     return 0;
 }
@@ -180,10 +178,41 @@ static void gps_buffers_init(void) {
 
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
 static void gps_on_sample_rate_change(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
-    FUNC_ENTRYD(TAG);
+    FUNC_ENTRY_ARGSD(TAG, "new rate:%d", g_rtc_config.ubx.output_rate);
     /// reallocate alfa buffer depending on output rate
-    gps_free_alfa_buf();
-    gps_check_alfa_buf(ALPHA_BUFFER_SIZE(rtc_config.output_rate));
+    if(xSemaphoreTake(log_p_lctx.xMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        gps_free_alfa_buf();
+        gps_check_alfa_buf(ALPHA_BUFFER_SIZE(g_rtc_config.ubx.output_rate));
+        xSemaphoreGive(log_p_lctx.xMutex);
+    }
+}
+
+static void gps_on_ubx_config_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY(TAG);
+    // Request UBX restart to apply new GNSS/rate configuration
+    lctx.ubx_restart_requested = true;
+}
+
+static void gps_on_ubx_nav_mode_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY(TAG);
+    ubx_ctx_t *ubx_ctx = (ubx_ctx_t *)handler_arg;
+    if(ubx_ctx) {
+        // Set navigation mode directly (doesn't require restart)
+        ubx_set_nav_mode(ubx_ctx, g_rtc_config.ubx.nav_mode);
+    }
+}
+
+static void gps_on_gps_log_nav_mode_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY(TAG);
+    // Handle GPS nav mode change file I/O operations in GPS task
+    gps_log_nav_mode_change(gps, 1);
+}
+
+// Test function to simulate UBX config change for testing async reconfiguration
+void test_ubx_config_change(void) {
+    FUNC_ENTRY(TAG);
+    ILOG(TAG, "Testing async UBX config change - posting event");
+    esp_event_post(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, NULL, 0, portMAX_DELAY);
 }
 
 static void gps_free_sec_buffers(void) {
@@ -210,9 +239,9 @@ static void gps_on_ubx_deinit(void* handler_arg, esp_event_base_t base, int32_t 
 #endif // CONFIG_GPS_LOG_STATIC_A_BUFFER || CONFIG_GPS_LOG_STATIC_S_BUFFER
 
 static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
-    struct ubx_config_s *ubx_dev = gps->ubx_device;
+    struct ubx_ctx_s *ubx_ctx = gps->ubx_device;
     struct gps_data_s *gps_data = &gps->Ublox;
-    struct ubx_msg_s * ubxMessage = &ubx_dev->ubx_msg;
+    struct ubx_msg_s * ubxMessage = &ubx_ctx->ubx_msg;
     const struct nav_pvt_s * nav_pvt = &ubxMessage->navPvt;
     const uint32_t now = get_millis();
     esp_err_t ret = ESP_OK;
@@ -224,7 +253,7 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                 #endif
                     if ((nav_pvt->numSV >= MIN_numSV_FIRST_FIX) && (MS_TO_SEC(nav_pvt->sAcc) < MAX_Sacc_FIRST_FIX) && (nav_pvt->valid >= 7) && (gps->signal_ok == false)) {
                         gps->signal_ok = true;
-                        gps->first_fix = (now - ubx_dev->ready_time);
+                        gps->first_fix = (now - ubx_ctx->ready_time);
                         WLOG(TAG, "[%s] First GPS Fix after %.01f sec.", __FUNCTION__, MS_TO_SEC(gps->first_fix));
                         esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FIRST_FIX, NULL, 0, portMAX_DELAY);
                     }
@@ -232,10 +261,10 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                         lctx.GPS_delay++; // delay max is 255 ubx messages for now
                     }
 
-                    set_time(c_gps_cfg.timezone);
+                    set_time(g_rtc_config.gps.timezone);
                     // printf(" msg:[%lu, %hu-%hhu-%hhu %hhu:%hhu:%hhu]", nav_pvt->iTOW, nav_pvt->year, nav_pvt->month, nav_pvt->day, nav_pvt->hour, nav_pvt->minute, nav_pvt->second);
 
-                    if (!gps->files_opened && gps->signal_ok && (lctx.GPS_delay > (TIME_DELAY_FIRST_FIX * ubx_dev->rtc_conf->output_rate))) {  // vertraging Gps_time_set is nu 10 s!!
+                    if (!gps->files_opened && gps->signal_ok && (lctx.GPS_delay > (TIME_DELAY_FIRST_FIX * g_rtc_config.ubx.output_rate))) {  // vertraging Gps_time_set is nu 10 s!!
                         int32_t avg_speed = 0;
                         avg_speed = (avg_speed + nav_pvt->gSpeed * 19) / 20;  // FIR filter average speed of last 20 measurements in mm/s
                         if (avg_speed > STANDSTILL_DETECTION_MAX) { // 1 m/s == 3.6 km/h
@@ -356,11 +385,11 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
 static void gpsTask(void *parameter) {
     FUNC_ENTRYD(TAG);
     uint32_t now = 0, loops = 0, mt = 0;
-    ubx_config_t *ubx_dev = gps->ubx_device;
-    ubx_msg_byte_ctx_t ubx_packet = UBX_MSG_BYTE_CTX_DEFAULT(ubx_dev->ubx_msg);
+    ubx_ctx_t *ubx_ctx = gps->ubx_device;
+    ubx_msg_byte_ctx_t ubx_packet = UBX_MSG_BYTE_CTX_DEFAULT(ubx_ctx->ubx_msg);
     ubx_packet.msg_match_to_pos = false;
     ubx_packet.msg_ready_handler = ubx_msg_checksum_handler;
-    ubx_msg_t * ubxMessage = &ubx_dev->ubx_msg;
+    ubx_msg_t * ubxMessage = &ubx_ctx->ubx_msg;
     struct nav_pvt_s * nav_pvt = &ubxMessage->navPvt;
     uint8_t try_setup_times = 5;
     while (lctx.gps_task_is_running) {
@@ -372,15 +401,15 @@ static void gpsTask(void *parameter) {
 // #endif
         now = get_millis();
         if (!gps_has_version_set() || lctx.ubx_restart_requested) {
-            mt = now - (ubx_dev->ready ? ubx_dev->ready_time : SEC_TO_MS(5));
+            mt = now - (ubx_ctx->ready ? ubx_ctx->ready_time : SEC_TO_MS(5));
             // ILOG(TAG, "[%s] Gps init ... (%lums)", __FUNCTION__, mt);
             if (mt > SEC_TO_MS(10)) { // 5 seconds
-                if(ubx_dev->ready){
-                    ubx_off(ubx_dev); // uart deinit
+                if(ubx_ctx->ready){
+                    ubx_off(ubx_ctx); // uart deinit
                     delay_ms(100);
                     lctx.ubx_fail_count++;
                 }
-                ubx_setup(ubx_dev); // uart init and reset
+                ubx_setup(ubx_ctx); // uart init and reset
             }
             if(lctx.ubx_fail_count>50) {
                 if(!gps_has_version_set()) { // only when no hwVersion is received
@@ -394,30 +423,32 @@ static void gpsTask(void *parameter) {
             goto loop_tail;
         }
         else if(vfs_ctx.gps_log_part < VFS_PART_MAX) {
-            if(!lctx.output_rate_swp && rtc_config.output_rate >= UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes < TO_K_UL(700)) {
+            if(!lctx.output_rate_swp && g_rtc_config.ubx.output_rate >= UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes < TO_K_UL(700)) {
                 WLOG(TAG, "[%s] vfs log part %s free space too low: %llu!", __FUNCTION__, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point, vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes);
-                lctx.output_rate_swp = rtc_config.output_rate;
-                rtc_config.output_rate = UBX_OUTPUT_5HZ;
-                set_gps_cfg_item(gps_cfg_sample_rate, 1);
+                lctx.output_rate_swp = g_rtc_config.ubx.output_rate;
+                g_rtc_config.ubx.output_rate = UBX_OUTPUT_5HZ;
+                ubx_set_gnss_and_rate(gps->ubx_device, g_rtc_config.ubx.gnss, g_rtc_config.ubx.output_rate);
+                // set_gps_cfg_item(cfg_ubx_ubx_output_rate, 1);
             }
-            else if(lctx.output_rate_swp && rtc_config.output_rate < UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes >= TO_K_UL(700)) {
+            else if(lctx.output_rate_swp && g_rtc_config.ubx.output_rate < UBX_OUTPUT_5HZ && vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes >= TO_K_UL(700)) {
                 WLOG(TAG, "[%s] vfs log part %s free space ok again: %llu!", __FUNCTION__, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point, vfs_ctx.parts[vfs_ctx.gps_log_part].free_bytes);
-                rtc_config.output_rate =(lctx.output_rate_swp == UBX_OUTPUT_5HZ) ? UBX_OUTPUT_10HZ :
+                g_rtc_config.ubx.output_rate =(lctx.output_rate_swp == UBX_OUTPUT_5HZ) ? UBX_OUTPUT_10HZ :
                                         (lctx.output_rate_swp == UBX_OUTPUT_10HZ) ? UBX_OUTPUT_16HZ :
                                         (lctx.output_rate_swp == UBX_OUTPUT_16HZ) ? UBX_OUTPUT_20HZ :
                                         UBX_OUTPUT_1HZ; /// have to set 1 step above to calculate saved rate
                 lctx.output_rate_swp = 0;
-                set_gps_cfg_item(gps_cfg_sample_rate, 1);
+                ubx_set_gnss_and_rate(gps->ubx_device, g_rtc_config.ubx.gnss, g_rtc_config.ubx.output_rate);
+                // set_gps_cfg_item(cfg_ubx_ubx_output_rate, 1);
             }
         }
-        esp_err_t ret = ubx_msg_handler(ubx_dev, &ubx_packet);
+        esp_err_t ret = ubx_msg_handler(ubx_ctx, &ubx_packet);
         if(!ret) { // only decoding if no Wifi connection}
             ubx_msg_do(&ubx_packet);
             lctx.ubx_fail_count = 0;
         } else {
             if((gps_has_version_set() && (ret == ESP_ERR_TIMEOUT && lctx.ubx_fail_count>3)) || lctx.ubx_fail_count>20) {
-                if(ubx_dev->ready) {
-                    ubx_dev->ready = false;
+                if(ubx_ctx->ready) {
+                    ubx_ctx->ready = false;
                     ubxMessage->mon_ver.hwVersion[0] = 0;
                 }
                 lctx.ubx_fail_count++;
@@ -446,7 +477,7 @@ static void gps_task_start() {
                 CONFIG_GPS_LOG_STACK_SIZE,  /* Stack size in bytes. */
                 NULL,      /* Parameter passed as input of the task */
                 19,         /* Priority of the task. */
-                &lctx.gps_task_handle, 1);      /* Task handle. */
+                &lctx.gps_task_handle, 0);      /* Task handle. Core 0 for WiFi affinity */
 #if defined(GPS_TIMER_STATS)
         if(gps_periodic_timer)
             esp_timer_start_periodic(gps_periodic_timer, SEC_TO_US(1));
@@ -503,13 +534,16 @@ void gps_deinit(void) {
 int gps_start() {
     FUNC_ENTRYD(TAG);
     if(!gps) return 0;
-    struct ubx_config_s *ubx_dev = gps->ubx_device;
-    if (!ubx_dev) return 0;
+    struct ubx_ctx_s *ubx_ctx = gps->ubx_device;
+    if (!ubx_ctx) return 0;
     if (lctx.gps_started) return 0;
     int ret = 0;
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
     if(!lctx.gps_events_registered) {
         esp_event_handler_register(UBX_EVENT, UBX_EVENT_SAMPLE_RATE_CHANGED, &gps_on_sample_rate_change, gps->ubx_device);
+        esp_event_handler_register(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, &gps_on_ubx_config_changed, gps->ubx_device);
+        esp_event_handler_register(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED, &gps_on_ubx_nav_mode_changed, gps->ubx_device);
+        esp_event_handler_register(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, &gps_on_gps_log_nav_mode_changed, NULL);
         lctx.gps_events_registered = 1;
     }
 #endif
@@ -522,12 +556,12 @@ int gps_start() {
 int gps_shut_down() {
     FUNC_ENTRYD(TAG);
     if(!gps) return 0;
-    struct ubx_config_s *ubx_dev = gps->ubx_device;
-    if (!ubx_dev) return 0;
+    struct ubx_ctx_s *ubx_ctx = gps->ubx_device;
+    if (!ubx_ctx) return 0;
     if (!lctx.gps_started) return 0;
     int ret = 0;
-    ubx_dev->shutdown_requested = 1;
-    if (ubx_dev->ready) {
+    ubx_ctx->shutdown_requested = 1;
+    if (ubx_ctx->ready) {
         gps->signal_ok = false;
         lctx.GPS_delay = 0;
     }
@@ -544,15 +578,18 @@ int gps_shut_down() {
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) || !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
     if (lctx.gps_events_registered) {
         esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_SAMPLE_RATE_CHANGED, &gps_on_sample_rate_change);
+        esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, &gps_on_ubx_config_changed);
+        esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED, &gps_on_ubx_nav_mode_changed);
+        esp_event_handler_unregister(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, &gps_on_gps_log_nav_mode_changed);
         lctx.gps_events_registered = 0;
     }
 #endif
-    ubx_off(ubx_dev);
+    ubx_off(ubx_ctx);
     gps_buffers_free();
 
     gps->time_set = 0;
     if(lctx.output_rate_swp) {
-        rtc_config.output_rate = lctx.output_rate_swp;
+        g_rtc_config.ubx.output_rate = lctx.output_rate_swp;
         lctx.output_rate_swp = 0;
     }
     lctx.gps_started = 0;
