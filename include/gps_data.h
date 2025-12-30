@@ -9,6 +9,7 @@ extern "C" {
 #include "sdkconfig.h"
 #include <stdint.h>
 #include <stdbool.h>
+
 #include "logger_common.h"
 #include "gps_satellite_data.h"
 #include "gps_speed_data.h"
@@ -46,7 +47,7 @@ typedef struct gps_context_s {
     struct gps_sat_info_s Ublox_Sat;    // create an object storing GPS_SAT info !
     gps_speed_metrics_desc_t *speed_metrics;
     uint16_t num_speed_metrics;
-    bool Gps_fields_OK;
+    bool gps_fields_initialized;
 
     uint16_t run_count;
     uint16_t alfa_count;     // counter for alfa
@@ -86,7 +87,7 @@ typedef struct gps_context_s {
     .Ublox_Sat = GPS_SAT_INFO_DEFAULT_CONFIG(), \
     .speed_metrics = NULL, \
     .num_speed_metrics = 0, \
-    .Gps_fields_OK = false, \
+    .gps_fields_initialized = false, \
     .run_count = 0, \
     .alfa_count = 0, \
     .time_out_gps_msg = 0, \

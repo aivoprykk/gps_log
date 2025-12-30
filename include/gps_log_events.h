@@ -5,34 +5,37 @@
 extern "C" {
 #endif
 
+#define GPS_EVENT_BASE 0x20  // Component ID 2
+
 #include "esp_event.h"
 #include "logger_common.h"
 
-// Declare an event base
-ESP_EVENT_DECLARE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
-
 #define GPS_LOG_EVENT_LIST(l) \
-    l(GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED) \
-    l(GPS_LOG_EVENT_LOG_FILES_OPENED) \
-    l(GPS_LOG_EVENT_LOG_FILES_SAVED) \
-    l(GPS_LOG_EVENT_LOG_FILES_CLOSED) \
-    l(GPS_LOG_EVENT_GPS_FRAME_LOST) \
-    l(GPS_LOG_EVENT_GPS_FIRST_FIX) \
-    l(GPS_LOG_EVENT_GPS_IS_MOVING) \
-    l(GPS_LOG_EVENT_GPS_IS_STOPPING) \
-    l(GPS_LOG_EVENT_GPS_REQUEST_RESTART) \
-    l(GPS_LOG_EVENT_GPS_SHUT_DOWN_DONE) \
-    l(GPS_LOG_EVENT_GPS_SAVE_FILES) \
-    l(GPS_LOG_EVENT_GPS_TIME_SET) \
-    l(GPS_LOG_EVENT_GPS_NEW_RUN) \
-    l(GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED) \
-    l(GPS_LOG_EVENT_CFG_SET) \
-    l(GPS_LOG_EVENT_CFG_GET) \
-    l(GPS_LOG_EVENT_CFG_CHANGED) \
+    l(REQUEST_FILE_OPEN) \
+    l(REQUEST_FILE_FLUSH) \
+    l(LOG_FILES_OPEN_FAILED) \
+    l(LOG_FILES_OPENED) \
+    l(LOG_FILES_SAVED) \
+    l(LOG_FILES_CLOSED) \
+    l(GPS_FRAME_LOST) \
+    l(GPS_FIRST_FIX) \
+    l(GPS_IS_MOVING) \
+    l(GPS_IS_STOPPING) \
+    l(GPS_REQUEST_RESTART) \
+    l(GPS_SHUT_DOWN_DONE) \
+    l(GPS_SAVE_FILES) \
+    l(GPS_TIME_SET) \
+    l(GPS_NEW_RUN) \
+    l(GPS_NAV_MODE_CHANGED) \
+    l(CFG_SET) \
+    l(CFG_GET) \
+    l(CFG_CHANGED)
+
+ESP_EVENT_DECLARE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
 // declaration of the specific events under the LOG_EVENT family
-enum {                                       
-    GPS_LOG_EVENT_LIST(ENUM)
-};
+#define LL(x) GPS_LOG_EVENT_ ## x,
+enum {GPS_LOG_EVENT_LIST(LL)};
+#undef LL
 
 const char * gps_log_event_strings(int id);
 

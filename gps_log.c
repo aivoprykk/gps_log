@@ -1,19 +1,16 @@
-#include "gps_log.h"
 #include "log_private.h"
-#include "gps_data.h"
-#include "gps_log_file.h"
-#include "gps_log_events.h"
 #include "ubx.h"
 #include "ubx_msg.h"
-#include "logger_common.h"
-#include "dstat_screens.h"
 #include "esp_mac.h"
+#include "vfs.h"
+
+#if defined(CONFIG_GPS_LOG_ENABLED)
 
 static const char *TAG = "gps_log";
 
-#if (C_LOG_LEVEL == LOG_TRACE_NUM) && defined(SHOW_SAVED_FRAMES)
+// #if (C_LOG_LEVEL == LOG_TRACE_NUM) && defined(SHOW_SAVED_FRAMES)
 #define GPS_TIMER_STATS 1
-#endif
+// #endif
 
 #if defined(GPS_TIMER_STATS)
 static uint32_t push_failed_count = 0, push_ok_count = 0, prev_push_failed_count = 0, prev_push_ok_count = 0;
@@ -22,6 +19,8 @@ static uint32_t prev_local_nav_pvt_count = 0;
 static uint32_t prev_local_nav_sat_count = 0;
 static uint32_t prev_millis = 0, prev_msg_count = 0, prev_err_count = 0;
 static esp_timer_handle_t gps_periodic_timer = 0;
+static size_t rx_buf_used_max = 0;
+static size_t rx_buf_used_min = SIZE_MAX;
 
 static void s(void* arg) {
     ubx_ctx_t *ubx_ctx = (ubx_ctx_t *)arg;
@@ -45,17 +44,57 @@ static void s(void* arg) {
     prev_local_nav_dop_count = local_nav_dop_count;
     prev_local_nav_pvt_count = ubx_ctx->ubx_msg.count_nav_pvt;
     prev_local_nav_sat_count = ubx_ctx->ubx_msg.count_nav_sat;
-    printf("\n[%s] * p:%"PRIu32"ms, r:%"PRIu8"Hz\n", __FUNCTION__, period, g_rtc_config.ubx.output_rate);
-    printf("[%s] >>>> period  msgcount: %6"PRIu16"  ok: %6"PRIu16" fail: %6"PRIu16" >>>>\n", __FUNCTION__, period_msg_count, period_saved_count, period_err_count);
-    printf("[%s] >>>> total   msgcount: %6"PRIu32", ok: %6"PRIu32" fail: %6"PRIu32" >>>>\n", __FUNCTION__, ubx_ctx->ubx_msg.count_msg, ubx_ctx->ubx_msg.count_ok, ubx_ctx->ubx_msg.count_err);
-    printf("[%s] >>>> period pushcount: %6"PRIu16", ok: %6"PRIu16" fail: %6"PRIu16" >>>>\n", __FUNCTION__, period_push_count, period_push_ok_count, period_push_failed_count);
-    printf("[%s] >>>> total  pushcount: %6"PRIu32", ok: %6"PRIu32" fail: %6"PRIu32" >>>>\n\n", __FUNCTION__, push_ok_count+push_failed_count, push_ok_count, push_failed_count);
-    printf("[%s] >>>> period nav_dop_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_dop_count);
-    printf("[%s] >>>> total  nav_dop_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, local_nav_dop_count);
-    printf("[%s] >>>> period nav_pvt_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_pvt_count);
-    printf("[%s] >>>> total  nav_pvt_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_ctx->ubx_msg.count_nav_pvt);
-    printf("[%s] >>>> period nav_sat_count: %6"PRIu16" >>>>\n", __FUNCTION__, period_local_nav_sat_count);
-    printf("[%s] >>>> total  nav_sat_count: %6"PRIu32" >>>>\n\n", __FUNCTION__, ubx_ctx->ubx_msg.count_nav_sat);
+
+    // Throughput verification metrics
+    float throughput = period > 0 ? (float)period_msg_count * 1000.0f / (float)period : 0.0f;
+    float loss_pct = period_msg_count > 0 ? (float)period_err_count * 100.0f / (float)period_msg_count : 0.0f;
+    uint8_t expected_hz = g_rtc_config.ubx.output_rate;
+
+    // Snapshot RX ring buffer usage (non-blocking if mutex busy)
+    size_t buf_size = ubx_ctx->rx_buf_size;
+    size_t buf_avail = 0;
+    size_t buf_free = 0;
+    if (ubx_ctx->rx_buf_mutex && xSemaphoreTake(ubx_ctx->rx_buf_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+        size_t head = ubx_ctx->rx_buf_head;
+        size_t tail = ubx_ctx->rx_buf_tail;
+        if (head >= tail) {
+            buf_avail = head - tail;
+        } else {
+            buf_avail = buf_size - tail + head;
+        }
+        buf_free = buf_size > 0 ? buf_size - buf_avail - 1 : 0;
+        xSemaphoreGive(ubx_ctx->rx_buf_mutex);
+    }
+    if (buf_avail > rx_buf_used_max) {
+        rx_buf_used_max = buf_avail;
+    }
+    else if (buf_avail < rx_buf_used_min) {
+        rx_buf_used_min = buf_avail;
+    }
+    float buf_used_pct = buf_size > 0 ? ((float)buf_avail * 100.0f) / (float)buf_size : 0.0f;
+    float buf_used_max_pct = buf_size > 0 ? ((float)rx_buf_used_max * 100.0f) / (float)buf_size : 0.0f;
+
+    printf("\n[%s] ========== THROUGHPUT VERIFICATION ==========\n", __FUNCTION__);
+    printf("[%s] Period: %"PRIu32"ms, Config rate: %"PRIu8"Hz (expected ~%u msg/s)\n", 
+        __FUNCTION__, period, expected_hz, (expected_hz*2+1));
+    printf("[%s] RX Throughput: %.1f msg/s | Loss: %.1f%% (%"PRIu16" err / %"PRIu16" msg)\n", 
+        __FUNCTION__, throughput, loss_pct, period_err_count, period_msg_count);
+    printf("[%s] RX Buffer: size=%zu avail=%zu free=%zu used=%.1f%% [max_used=%zu (%.1f%%) min_used=%zu]\n",
+        __FUNCTION__, buf_size, buf_avail, buf_free, buf_used_pct, rx_buf_used_max, buf_used_max_pct, rx_buf_used_min);
+    printf("[%s] Message types (period): PVT=%"PRIu16" DOP=%"PRIu16" SAT=%"PRIu16"\n", 
+        __FUNCTION__, period_local_nav_pvt_count, period_local_nav_dop_count, period_local_nav_sat_count);
+    printf("[%s] Message distribution: PVT=%.0f%% DOP=%.0f%% SAT=%.0f%%\n", 
+        __FUNCTION__, 
+        period_msg_count > 0 ? (float)period_local_nav_pvt_count * 100.0f / (float)period_msg_count : 0.0f,
+        period_msg_count > 0 ? (float)period_local_nav_dop_count * 100.0f / (float)period_msg_count : 0.0f,
+        period_msg_count > 0 ? (float)period_local_nav_sat_count * 100.0f / (float)period_msg_count : 0.0f);
+    printf("[%s] Push stats (period): ok=%"PRIu16" fail=%"PRIu16" (%.1f%% loss)\n", 
+        __FUNCTION__, period_push_ok_count, period_push_failed_count,
+        period_push_count > 0 ? (float)period_push_failed_count * 100.0f / (float)period_push_count : 0.0f);
+    printf("[%s] Totals: msg=%"PRIu32" ok=%"PRIu32" err=%"PRIu32" | PVT=%"PRIu32" DOP=%"PRIu32" SAT=%"PRIu32"\n", 
+        __FUNCTION__, ubx_ctx->ubx_msg.count_msg, ubx_ctx->ubx_msg.count_ok, ubx_ctx->ubx_msg.count_err,
+        ubx_ctx->ubx_msg.count_nav_pvt, local_nav_dop_count, ubx_ctx->ubx_msg.count_nav_sat);
+    printf("[%s] ========================================\n\n", __FUNCTION__);
 }
 #endif
 
@@ -70,7 +109,7 @@ typedef struct {
     uint32_t last_flush_time;
     bool gps_task_is_running;
     TaskHandle_t gps_task_handle;
-    uint8_t ubx_fail_count;
+    uint16_t ubx_fail_count; // widen to avoid overflow when accumulating error penalties
     uint8_t gps_initialized;
     uint8_t gps_started;
     uint8_t gps_events_registered;
@@ -80,15 +119,48 @@ static log_context_t lctx = {.old_run_count = 0, .GPS_delay = 0, .old_nav_pvt_it
                                .output_rate_swp = 0, .last_flush_time = 0, .gps_task_is_running = false, .gps_task_handle = NULL, .ubx_fail_count = 0, .gps_initialized = 0, .gps_started = 0, .gps_events_registered = 0};
 
 gps_context_t * gps = 0;
+static bool gps_config_observer_registered = false;
 
 ESP_EVENT_DEFINE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
+
+// Forward declarations for async file handlers
+static void gps_file_open_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data);
+static void gps_file_flush_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data);
+
+// Unified GPS->VFS processor (registered via vfs_register_work_interface)
+static void gps_vfs_processor(vfs_work_type_t type, void *arg) {
+    gps_context_t *g = (gps_context_t*)arg;
+    if (!g) return;
+    switch(type) {
+        case VFS_WORK_OPEN_FILES:
+            open_files(g);
+            break;
+        case VFS_WORK_CLOSE_FILES:
+            gps_speed_metrics_save_session();
+            close_files(g);
+            break;
+        case VFS_WORK_FLUSH_FILES:
+            flush_files(g);
+            break;
+        case VFS_WORK_PARTITION_CHANGED:
+            gps_speed_metrics_save_session();
+            close_files(g);
+            open_files(g);
+            break;
+        case VFS_WORK_SAVE_SESSION:
+            gps_speed_metrics_save_session();
+            break;
+        default:
+            break;
+    }
+}
 
 #if (C_LOG_LEVEL == LOG_TRACE_NUM)
 static const char * const _gps_log_event_strings[] = {
     GPS_LOG_EVENT_LIST(STRINGIFY)
 };
 const char * gps_log_event_strings(int id) {
-    return _gps_log_event_strings[id];
+    return id < lengthof(_gps_log_event_strings) ? _gps_log_event_strings[id] : "GPS_LOG_EVENT_UNKNOWN";
 }
 #else
 const char * gps_log_event_strings(int id) {
@@ -193,27 +265,62 @@ static void gps_on_ubx_config_changed(void* handler_arg, esp_event_base_t base, 
     lctx.ubx_restart_requested = true;
 }
 
-static void gps_on_ubx_nav_mode_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
-    FUNC_ENTRY(TAG);
-    ubx_ctx_t *ubx_ctx = (ubx_ctx_t *)handler_arg;
-    if(ubx_ctx) {
-        // Set navigation mode directly (doesn't require restart)
-        ubx_set_nav_mode(ubx_ctx, g_rtc_config.ubx.nav_mode);
+static void gps_config_changed_cb(size_t group, size_t index) {
+    if (group != SCFG_GROUP_GPS) {
+        return;
     }
+
+    // Keep local log config in sync with the persisted GPS config
+    gps_config_fix_values();
+
+#if defined(CONFIG_LOGGER_VFS_ENABLED)
+    bool affects_files = false;
+    switch (index) {
+        case cfg_gps_log_txt:
+        case cfg_gps_log_ubx:
+        case cfg_gps_log_sbp:
+        case cfg_gps_log_gpx:
+#if defined(GPS_LOG_ENABLE_GPY)
+        case cfg_gps_log_gpy:
+#endif
+        case cfg_gps_file_date_time:
+        case cfg_gps_ubx_file:
+            affects_files = true;
+            break;
+        default:
+            break;
+    }
+
+    // If logging is active, re-open files via VFS worker to apply new config
+    if (affects_files && gps && gps->files_opened) {
+        vfs_post_work(VFS_WORK_PARTITION_CHANGED, gps); // closes and re-opens files with new config
+    }
+#endif
+}
+
+static void gps_on_ubx_nav_mode_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY_ARGS(TAG, "nav_mode:%d (confirmed by device)", g_rtc_config.ubx.nav_mode);
+    // This handler fires AFTER u-blox confirms nav mode change (response event)
+    // Do NOT call ubx_set_nav_mode() here - it already happened!
+    // Only use this for logging/monitoring the confirmed change
 }
 
 static void gps_on_gps_log_nav_mode_changed(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
-    FUNC_ENTRY(TAG);
+    FUNC_ENTRY_ARGS(TAG, "nav_mode:%d", g_rtc_config.ubx.nav_mode);
+    // Actually apply the nav mode change to the u-blox device
+    if(gps && gps->ubx_device) {
+        ubx_set_nav_mode(gps->ubx_device, g_rtc_config.ubx.nav_mode);
+    }
     // Handle GPS nav mode change file I/O operations in GPS task
     gps_log_nav_mode_change(gps, 1);
 }
 
 // Test function to simulate UBX config change for testing async reconfiguration
-void test_ubx_config_change(void) {
-    FUNC_ENTRY(TAG);
-    ILOG(TAG, "Testing async UBX config change - posting event");
-    esp_event_post(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, NULL, 0, portMAX_DELAY);
-}
+// void test_ubx_config_change(void) {
+//     FUNC_ENTRY(TAG);
+//     ILOG(TAG, "Testing async UBX config change - posting event");
+//     esp_event_post(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, NULL, 0, portMAX_DELAY);
+// }
 
 static void gps_free_sec_buffers(void) {
     FUNC_ENTRYD(TAG);
@@ -248,9 +355,9 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
     switch(ubx_packet->ubx_msg_type) {
             case MT_NAV_DOP:
                 if (nav_pvt->iTOW > 0) {  // Logging after NAV_DOP, ublox sends first NAV_PVT, and then NAV_DOP.
-                #if defined(GPS_TIMER_STATS)
+#if defined(GPS_TIMER_STATS)
                     local_nav_dop_count++;
-                #endif
+#endif
                     if ((nav_pvt->numSV >= MIN_numSV_FIRST_FIX) && (MS_TO_SEC(nav_pvt->sAcc) < MAX_Sacc_FIRST_FIX) && (nav_pvt->valid >= 7) && (gps->signal_ok == false)) {
                         gps->signal_ok = true;
                         gps->first_fix = (now - ubx_ctx->ready_time);
@@ -261,59 +368,58 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                         lctx.GPS_delay++; // delay max is 255 ubx messages for now
                     }
 
-                    set_time(g_rtc_config.gps.timezone);
-                    // printf(" msg:[%lu, %hu-%hhu-%hhu %hhu:%hhu:%hhu]", nav_pvt->iTOW, nav_pvt->year, nav_pvt->month, nav_pvt->day, nav_pvt->hour, nav_pvt->minute, nav_pvt->second);
+                    // Only sync time every 30s (not every NAV_DOP message!)
+                    if ((now - lctx.next_time_sync) > 0) {
+                        set_time(g_rtc_config.gps.timezone);
+                    }
 
-                    if (!gps->files_opened && gps->signal_ok && (lctx.GPS_delay > (TIME_DELAY_FIRST_FIX * g_rtc_config.ubx.output_rate))) {  // vertraging Gps_time_set is nu 10 s!!
-                        int32_t avg_speed = 0;
-                        avg_speed = (avg_speed + nav_pvt->gSpeed * 19) / 20;  // FIR filter average speed of last 20 measurements in mm/s
-                        if (avg_speed > STANDSTILL_DETECTION_MAX) { // 1 m/s == 3.6 km/h
-                            if (gps->time_set) {
-                                gps->start_logging_millis = now;
-                                open_files(gps);  // only start logging if GPS signal is OK
-                                esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY);
-                            } else {
-                                ELOG(TAG, "[%s] gps time not set!", __FUNCTION__);
-                            }
-                        }  // Only speed > 0 if speed is greater than 1m/s + sACC < 1 + sat < 5 + speed > 35 m/s !!!
+                    // Post file open request as event instead of blocking file I/O in GPS task
+                    if (!gps->files_opened && gps->signal_ok && (lctx.GPS_delay > (TIME_DELAY_FIRST_FIX * g_rtc_config.ubx.output_rate))) {
+                        int32_t avg_speed = nav_pvt->gSpeed;  // Already in mm/s from u-blox
+                        if (avg_speed > STANDSTILL_DETECTION_MAX && gps->time_set) {
+                            gps->start_logging_millis = now;
+                            // Post async event to open files in separate task (non-blocking)
+                            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_OPEN, NULL, 0, portMAX_DELAY);
+                        }
                     }
                     if ((gps->time_set) && (ubxMessage->count_nav_pvt > 10) && (ubxMessage->count_nav_pvt != ubxMessage->count_nav_pvt_prev)) {
                         ubxMessage->count_nav_pvt_prev = ubxMessage->count_nav_pvt;
-                        // float sAcc=nav_pvt->sAcc/1000;
-                        gps->gps_speed = nav_pvt->gSpeed;  // hier alles naar mm/s !!
-                        //printf("[%s] GPS nav_pvt gSpeed: %"PRId32"\n", __FUNCTION__, gps->gps_speed);
-                        
-                        // gps msg interval used by sd card logging and run detection and show trouble screen when no gps signal
-                        // gps->interval_gps_msg = nav_pvt->iTOW - lctx.old_nav_pvt_itow;
+                        gps->gps_speed = nav_pvt->gSpeed;  // Already in mm/s from u-blox
                         lctx.old_nav_pvt_itow = nav_pvt->iTOW;
         
+                        // File flush every 60s
                         if (gps->files_opened && (now - lctx.last_flush_time) > 60000) {
-                            flush_files(gps);
+                            // Post flush as event to avoid blocking GPS task
+                            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_FLUSH, NULL, 0, portMAX_DELAY);
                             lctx.last_flush_time = now;
                         }
-                        // init run if speed is 0 or sAcc > 1 or speed > 35 m/s
-                        if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) || (MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK)) {
+                        
+                        // Quick validity check: reject if poor quality
+                        uint32_t sacc_mm = nav_pvt->sAcc;  // Already in mm
+                        if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || 
+                            (sacc_mm > MAX_Sacc_GPS_SPEED_OK * 1000) ||  // Convert threshold to mm
+                            (gps->gps_speed > MAX_GPS_SPEED_OK * 1000)) {  // Convert to mm/s
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
-                            const char * c = " GPS run cancelled ";
-                            if(nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) WLOG(TAG, "[%s]%s %hhu <= %d MIN_numSV_GPS_SPEED_OK", __FUNCTION__, c, nav_pvt->numSV, (int)MIN_numSV_GPS_SPEED_OK);
-                            if(MM_TO_M(nav_pvt->sAcc) > MAX_Sacc_GPS_SPEED_OK) WLOG(TAG, "[%s]%s%.01f > %d MAX_Sacc_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->sAcc), (int)MAX_Sacc_GPS_SPEED_OK);
-                            if(MM_TO_M(nav_pvt->gSpeed) > MAX_GPS_SPEED_OK) WLOG(TAG, "[%s]%s%.01f > %d MAX_GPS_SPEED_OK", __FUNCTION__, c, MM_TO_M(nav_pvt->gSpeed), (int)MAX_GPS_SPEED_OK);
+                            WLOG(TAG, "[%s] GPS rejected: sats=%d, acc=%d, speed=%ld",
+                                __FUNCTION__, nav_pvt->numSV, sacc_mm, gps->gps_speed);
 #endif
                             gps->gps_speed = 0;
                             gps_data->run_start_time = 0;
                         }
-                        //saved_count++;
-                        if (gps->gps_speed > STANDSTILL_DETECTION_MAX) { // log only when speed is above 1 m/s == 3.6 km/h
-                            log_to_file(gps);  // here it is also printed to serial !!
-                            if(!gps->gps_is_moving) {
-                                DLOG(TAG, "[%s] GPS moving detected (%ld ms), run start event sent.\n", __FUNCTION__, gps->gps_speed);
+                        
+                        // Only process speed data if we have valid signal
+                        if (gps->gps_speed > STANDSTILL_DETECTION_MAX) {
+                            // Keep log_to_file() SYNCHRONOUS - it must operate on live ubx_msg!
+                            if (gps->files_opened) {
+                                log_to_file(gps);  // Reads directly from ubx->ubx_msg (live data)
+                            }
+                            if (!gps->gps_is_moving) {
                                 gps->gps_is_moving = true;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_MOVING, NULL, 0, portMAX_DELAY);
                             }
                         }
                         else {
-                            if(gps->gps_is_moving) {
-                                DLOG(TAG,"[%s] GPS stop run detected (%ld ms), stop event sent.\n", __FUNCTION__, gps->gps_speed);
+                            if (gps->gps_is_moving) {
                                 gps->gps_is_moving = false;
                                 esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_STOPPING, NULL, 0, portMAX_DELAY);
                                 log_p_lctx.standstill_start_millis = 0;
@@ -322,44 +428,34 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
                                 if (log_p_lctx.standstill_start_millis == 0) {
                                     log_p_lctx.standstill_start_millis = now;
                                 }
-                                else if ((now - log_p_lctx.standstill_start_millis) > SEC_TO_MS(5)) { // 5 seconds of standstill
-                                    if (!gps->skip_alfa_after_stop) {
-                                        WLOG(TAG, "[%s] GPS run stopped, alfa detection skipped.\n", __FUNCTION__);
-                                        // esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_STANDSTILL, NULL, 0, portMAX_DELAY);
-                                        gps->skip_alfa_after_stop = 1; // reset skip alfa detection
-                                    }
+                                else if ((now - log_p_lctx.standstill_start_millis) > SEC_TO_MS(5)) {
+                                    gps->skip_alfa_after_stop = 1;
+                                    DLOG(TAG, "[%s] Standstill 5s - skip alfa", __FUNCTION__);
                                 }
                             }
-                       }
+                        }
+                        
+                        // Only update data structures if moving
                         ret = push_gps_data(gps, gps_data, FROM_10M(nav_pvt->lat), FROM_10M(nav_pvt->lon), gps->gps_speed);
-                        if(ret){
-                        #if defined(GPS_TIMER_STATS)
-                            ++push_failed_count;
-                        #endif
-#if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
-                            ELOG(TAG, "[%s] push msg failed, timer: %lu, msg_count: %lu ...\n", __func__, now, ubxMessage->count_nav_pvt);
-#endif
-                            goto end;
-                        }
-                        #if defined(GPS_TIMER_STATS)
-                        else
-                            ++push_ok_count;
-                        #endif
-                        new_run_detection(gps, FROM_100K(nav_pvt->heading), time_cur_speed(time_2s));
-                        alfa_indicator(FROM_100K(nav_pvt->heading));
-                        // new run detected, reset run distance
-                        if (gps->run_count != lctx.old_run_count) {
-                            gps_data->run_distance = 0;
-                            // gps_data->run_distance_after_turn = 0;
-                            if (MM_TO_M(gps->gps_speed) > STANDSTILL_DETECTION_MAX) {
-                                DLOG(TAG, "[%s] GPS new run detected (%ld ms).\n", __FUNCTION__, gps->gps_speed);
-                                gps_data->run_start_time = now;
-                                gps->record = 0;
-                                esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NEW_RUN, NULL, 0, portMAX_DELAY);
+                        if (!ret) {
+                            new_run_detection(gps, FROM_100K(nav_pvt->heading), time_cur_speed(time_2s));
+                            alfa_indicator(FROM_100K(nav_pvt->heading));
+                            
+                            // Update run distance only when new run detected
+                            if (gps->run_count != lctx.old_run_count) {
+                                gps_data->run_distance = 0;
+                                if (MM_TO_M(gps->gps_speed) > STANDSTILL_DETECTION_MAX) {
+                                    gps_data->run_start_time = now;
+                                    gps->record = 0;
+                                    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NEW_RUN, NULL, 0, portMAX_DELAY);
+                                }
+                                lctx.old_run_count = gps->run_count;
                             }
+                            gps_speed_metrics_update();
                         }
-                        lctx.old_run_count = gps->run_count;
-                        gps_speed_metrics_update();
+#if defined(GPS_TIMER_STATS)
+                        else ++push_failed_count;
+#endif
                     }
                 }
                 break;
@@ -378,7 +474,6 @@ static esp_err_t ubx_msg_do(const ubx_msg_byte_ctx_t *ubx_packet) {
             default:
                 break;
         }
-        end:
         return ret;
 }
 
@@ -387,18 +482,13 @@ static void gpsTask(void *parameter) {
     uint32_t now = 0, loops = 0, mt = 0;
     ubx_ctx_t *ubx_ctx = gps->ubx_device;
     ubx_msg_byte_ctx_t ubx_packet = UBX_MSG_BYTE_CTX_DEFAULT(ubx_ctx->ubx_msg);
+    ubx_packet.ctx = ubx_ctx;
     ubx_packet.msg_match_to_pos = false;
     ubx_packet.msg_ready_handler = ubx_msg_checksum_handler;
     ubx_msg_t * ubxMessage = &ubx_ctx->ubx_msg;
     struct nav_pvt_s * nav_pvt = &ubxMessage->navPvt;
     uint8_t try_setup_times = 5;
     while (lctx.gps_task_is_running) {
-// #if (C_LOG_LEVEL < 2 || defined(DEBUG))
-//         if (loops++ > 500) {
-//             task_memory_info(__func__);
-//             loops = 0;
-//         }
-// #endif
         now = get_millis();
         if (!gps_has_version_set() || lctx.ubx_restart_requested) {
             mt = now - (ubx_ctx->ready ? ubx_ctx->ready_time : SEC_TO_MS(5));
@@ -441,24 +531,191 @@ static void gpsTask(void *parameter) {
                 // set_gps_cfg_item(cfg_ubx_ubx_output_rate, 1);
             }
         }
-        esp_err_t ret = ubx_msg_handler(ubx_ctx, &ubx_packet);
-        if(!ret) { // only decoding if no Wifi connection}
-            ubx_msg_do(&ubx_packet);
-            lctx.ubx_fail_count = 0;
-        } else {
-            if((gps_has_version_set() && (ret == ESP_ERR_TIMEOUT && lctx.ubx_fail_count>3)) || lctx.ubx_fail_count>20) {
-                if(ubx_ctx->ready) {
-                    ubx_ctx->ready = false;
-                    ubxMessage->mon_ver.hwVersion[0] = 0;
-                }
-                lctx.ubx_fail_count++;
-                goto loop_tail;
-            }
-            lctx.ubx_fail_count+=5;
+        
+            // Two-phase processing: FAST decode (drain buffer) → SLOW processing (file I/O)
+            // Phase 1: Drain buffer by decoding ALL available messages (no heavy processing)
+        uint32_t timeout_ms = ubx_ctx->ready ? 10 : 50;
+        BaseType_t signaled = xSemaphoreTake(ubx_ctx->msg_ready, pdMS_TO_TICKS(timeout_ms));
+        
+        if (!signaled && ubx_ctx->ready) {
+            goto loop_tail;
         }
         
+            bool had_nav_dop = false;  // Track if we decoded a NAV_DOP (triggers processing phase)
+            int decoded_count = 0;
+        
+            // Phase 1: Decode loop - drain buffer as fast as possible
+        while (true) {
+            esp_err_t ret = ubx_msg_handler(ubx_ctx, &ubx_packet);
+            if(!ret) {
+                    decoded_count++;
+                lctx.ubx_fail_count = 0;
+                
+                    // Only do FAST operations inline (update counters, store parsed data)
+                    switch(ubx_packet.ubx_msg_type) {
+                        case MT_NAV_PVT:
+                            if (ubxMessage->navPvt.iTOW > 0 && gps->time_set == 1) {
+                                ubxMessage->count_nav_pvt++;
+                                lctx.old_nav_pvt_itow = nav_pvt->iTOW;  // Update immediately to prevent false timeouts
+                            }
+                            break;
+                        case MT_NAV_SAT:
+                            ubxMessage->count_nav_sat++;
+                            ubxMessage->nav_sat.iTOW = ubxMessage->nav_sat.iTOW - SEC_TO_MS(LEAP_UTC_OFFSET);
+                            push_gps_sat_info(&gps->Ublox_Sat, &ubxMessage->nav_sat);
+                            break;
+                        case MT_NAV_DOP:
+                            had_nav_dop = true;  // Defer heavy processing until buffer drained
+    #if defined(GPS_TIMER_STATS)
+                            local_nav_dop_count++;
+    #endif
+                            break;
+                        default:
+                            break;
+                    }
+                
+                // Keep draining as long as complete frames remain, even if no new wake is pending
+                if (xSemaphoreTake(ubx_ctx->msg_ready, 0) != pdTRUE && !ubx_rx_has_complete_frame(ubx_ctx)) {
+                        break;  // Buffer empty, proceed to processing phase
+                }
+            } else {
+                if((gps_has_version_set() && (ret == ESP_ERR_TIMEOUT && lctx.ubx_fail_count>3)) || lctx.ubx_fail_count>20) {
+                    if(ubx_ctx->ready) {
+                        ubx_ctx->ready = false;
+                        ubxMessage->mon_ver.hwVersion[0] = 0;
+                    }
+                    lctx.ubx_fail_count++;
+                    goto loop_tail;
+                }
+                lctx.ubx_fail_count+=5;
+                    break;
+            }
+        }
+        
+            // Phase 2: Heavy processing AFTER buffer is drained
+            // Do file I/O, calculations, events - buffer keeps filling but we're not blocking UART
+            if (had_nav_dop && nav_pvt->iTOW > 0) {
+                // All the heavy NAV_DOP processing from ubx_msg_do()
+                // Debug: Log why first fix isn't triggering
+                if (!gps->signal_ok) {
+                    static uint32_t last_debug_log = 0;
+                    if ((now - last_debug_log) > 2000) {  // Log every 2s
+                        WLOG(TAG, "[%s] Waiting for fix: sats=%d (need≥%d), acc=%.1fm (need<%.1fm), valid=0x%x (need≥7)",
+                            __FUNCTION__, nav_pvt->numSV, MIN_numSV_FIRST_FIX, 
+                            MS_TO_SEC(nav_pvt->sAcc), (float)MAX_Sacc_FIRST_FIX, nav_pvt->valid);
+                        last_debug_log = now;
+                    }
+                }
+                
+                if ((nav_pvt->numSV >= MIN_numSV_FIRST_FIX) && (MS_TO_SEC(nav_pvt->sAcc) < MAX_Sacc_FIRST_FIX) && 
+                    (nav_pvt->valid >= 7) && (gps->signal_ok == false)) {
+                    gps->signal_ok = true;
+                    gps->first_fix = (now - ubx_ctx->ready_time);
+                    WLOG(TAG, "[%s] First GPS Fix after %.01f sec.", __FUNCTION__, MS_TO_SEC(gps->first_fix));
+                    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FIRST_FIX, NULL, 0, portMAX_DELAY);
+                }
+                if (gps->signal_ok && lctx.GPS_delay < UINT8_MAX) {
+                    lctx.GPS_delay++;
+                }
+
+                if ((now - lctx.next_time_sync) > 0) {
+                    set_time(g_rtc_config.gps.timezone);
+                }
+
+                if (!gps->files_opened && gps->signal_ok && 
+                    (lctx.GPS_delay > (TIME_DELAY_FIRST_FIX * g_rtc_config.ubx.output_rate))) {
+                    int32_t avg_speed = nav_pvt->gSpeed;
+                    if (avg_speed > STANDSTILL_DETECTION_MAX && gps->time_set) {
+                        gps->start_logging_millis = now;
+                        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_OPEN, NULL, 0, portMAX_DELAY);
+                    }
+                }
+            
+                if ((gps->time_set) && (ubxMessage->count_nav_pvt > 10) && 
+                    (ubxMessage->count_nav_pvt != ubxMessage->count_nav_pvt_prev)) {
+                    ubxMessage->count_nav_pvt_prev = ubxMessage->count_nav_pvt;
+                    gps->gps_speed = nav_pvt->gSpeed;
+                    lctx.old_nav_pvt_itow = nav_pvt->iTOW;
+
+                    if (gps->files_opened && (now - lctx.last_flush_time) > 60000) {
+                        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_FLUSH, NULL, 0, portMAX_DELAY);
+                        lctx.last_flush_time = now;
+                    }
+                
+                    uint32_t sacc_mm = nav_pvt->sAcc;
+                    
+                    // Debug: Show speed BEFORE quality check
+                    static uint32_t last_speed_log = 0;
+                    if ((now - last_speed_log) > 1000) {  // Log every 1s
+                        WLOG(TAG, "[%s] RAW speed=%ldmm/s (%.1fm/s), sats=%hhu, acc=%lumm (%.1fm)",
+                            __FUNCTION__, gps->gps_speed, (float)gps->gps_speed/1000.0f,
+                            nav_pvt->numSV, sacc_mm, (float)sacc_mm/1000.0f);
+                        last_speed_log = now;
+                    }
+                    
+                    if ((nav_pvt->numSV <= MIN_numSV_GPS_SPEED_OK) || 
+                        (sacc_mm > MAX_Sacc_GPS_SPEED_OK * 1000) ||
+                        (gps->gps_speed > MAX_GPS_SPEED_OK * 1000)) {
+    #if (C_LOG_LEVEL <= LOG_INFO_NUM)
+                        WLOG(TAG, "[%s] GPS REJECTED: sats=%hhu (need>%d), acc=%lumm (need<=%dm), speed=%ldmm/s",
+                            __FUNCTION__, nav_pvt->numSV, MIN_numSV_GPS_SPEED_OK, sacc_mm, MAX_Sacc_GPS_SPEED_OK*1000, gps->gps_speed);
+    #endif
+                        gps->gps_speed = 0;
+                        gps->Ublox.run_start_time = 0;
+                    }
+                
+                    if (gps->gps_speed > STANDSTILL_DETECTION_MAX) {
+                        if (gps->files_opened) {
+                            log_to_file(gps);
+                        }
+                        if (!gps->gps_is_moving) {
+                            gps->gps_is_moving = true;
+                            WLOG(TAG, "[%s] *** GPS IS MOVING *** speed=%ldmm/s", __FUNCTION__, gps->gps_speed);
+                            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_MOVING, NULL, 0, portMAX_DELAY);
+                        }
+                    }
+                    else {
+                        if (gps->gps_is_moving) {
+                            gps->gps_is_moving = false;
+                            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_IS_STOPPING, NULL, 0, portMAX_DELAY);
+                            log_p_lctx.standstill_start_millis = 0;
+                        }
+                        else if (!gps->skip_alfa_after_stop) {
+                            if (log_p_lctx.standstill_start_millis == 0) {
+                                log_p_lctx.standstill_start_millis = now;
+                            }
+                            else if ((now - log_p_lctx.standstill_start_millis) > SEC_TO_MS(5)) {
+                                gps->skip_alfa_after_stop = 1;
+                                DLOG(TAG, "[%s] Standstill 5s - skip alfa", __FUNCTION__);
+                            }
+                        }
+                    }
+                
+                    esp_err_t ret = push_gps_data(gps, &gps->Ublox, FROM_10M(nav_pvt->lat), 
+                                                 FROM_10M(nav_pvt->lon), gps->gps_speed);
+                    if (!ret) {
+                        new_run_detection(gps, FROM_100K(nav_pvt->heading), time_cur_speed(time_2s));
+                        alfa_indicator(FROM_100K(nav_pvt->heading));
+                    
+                        if (gps->run_count != lctx.old_run_count) {
+                            gps->Ublox.run_distance = 0;
+                            if (MM_TO_M(gps->gps_speed) > STANDSTILL_DETECTION_MAX) {
+                                gps->Ublox.run_start_time = now;
+                                gps->record = 0;
+                                esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NEW_RUN, NULL, 0, portMAX_DELAY);
+                            }
+                            lctx.old_run_count = gps->run_count;
+                        }
+                        gps_speed_metrics_update();
+                    }
+    #if defined(GPS_TIMER_STATS)
+                    else ++push_failed_count;
+    #endif
+                }
+            }
+        
     loop_tail:
-        delay_ms(10);
+        continue;
     }
     lctx.gps_task_handle = 0;
     vTaskDelete(NULL);
@@ -493,8 +750,8 @@ static void gps_task_stop() {
             esp_timer_stop(gps_periodic_timer);
 #endif
         lctx.gps_task_is_running = false;
-        uint32_t now = get_millis() + SEC_TO_MS(5);
-        while(lctx.gps_task_handle && (get_millis() < now)) delay_ms(10);
+        uint32_t deadline = get_millis() + SEC_TO_MS(5);
+        while(lctx.gps_task_handle && (get_millis() < deadline)) delay_ms(10);
         if(lctx.gps_task_handle) {
             vTaskDelete(lctx.gps_task_handle);
             lctx.gps_task_handle = 0;
@@ -504,9 +761,10 @@ static void gps_task_stop() {
 }
 
 void gps_init(gps_context_t * _gps) {
-    FUNC_ENTRYD(TAG);
     if(lctx.gps_initialized) return;
+    FUNC_ENTRY(TAG);
     gps = _gps;
+    gps_config_fix_values();
     init_gps_context_fields(gps);
 #if defined(GPS_TIMER_STATS)
     const esp_timer_create_args_t gps_periodic_timer_args = {
@@ -518,15 +776,25 @@ void gps_init(gps_context_t * _gps) {
             ELOG(TAG, "[%s] Failed to create periodic timer", __func__);
         }
 #endif
+    if (!gps_config_observer_registered) {
+        gps_config_observer_registered = config_observer_add(gps_config_changed_cb);
+        if (!gps_config_observer_registered) {
+            WLOG(TAG, "[%s] failed to register GPS config observer", __func__);
+        }
+    }
     lctx.gps_initialized = 1;
 }
 
 void gps_deinit(void) {
-    FUNC_ENTRYD(TAG);
     if(!lctx.gps_initialized) return;
+    FUNC_ENTRY(TAG);
 #if defined(GPS_TIMER_STATS)
     esp_timer_delete(gps_periodic_timer);
 #endif
+    if (gps_config_observer_registered) {
+        config_observer_remove(gps_config_changed_cb);
+        gps_config_observer_registered = false;
+    }
     deinit_gps_context_fields(gps);
     lctx.gps_initialized = 0;
 }
@@ -544,6 +812,20 @@ int gps_start() {
         esp_event_handler_register(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, &gps_on_ubx_config_changed, gps->ubx_device);
         esp_event_handler_register(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED, &gps_on_ubx_nav_mode_changed, gps->ubx_device);
         esp_event_handler_register(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, &gps_on_gps_log_nav_mode_changed, NULL);
+        // Register async file handlers (enqueue work for VFS worker)
+        esp_event_handler_register(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_OPEN, &gps_file_open_handler, gps);
+        esp_event_handler_register(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_FLUSH, &gps_file_flush_handler, gps);
+
+        // Register VFS GPS interface
+#if defined(CONFIG_LOGGER_VFS_ENABLED)
+        {
+            vfs_work_if_t iface = {
+                .process = gps_vfs_processor,
+                .ctx = gps
+            };
+            vfs_register_work_interface(&iface);
+        }
+#endif
         lctx.gps_events_registered = 1;
     }
 #endif
@@ -581,6 +863,14 @@ int gps_shut_down() {
         esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED, &gps_on_ubx_config_changed);
         esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED, &gps_on_ubx_nav_mode_changed);
         esp_event_handler_unregister(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, &gps_on_gps_log_nav_mode_changed);
+        // Unregister async file handlers
+        esp_event_handler_unregister(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_OPEN, &gps_file_open_handler);
+        esp_event_handler_unregister(GPS_LOG_EVENT, GPS_LOG_EVENT_REQUEST_FILE_FLUSH, &gps_file_flush_handler);
+
+#if defined(CONFIG_LOGGER_VFS_ENABLED)
+        // Unregister VFS work interface
+        vfs_register_work_interface(NULL);
+#endif
         lctx.gps_events_registered = 0;
     }
 #endif
@@ -603,3 +893,25 @@ int gps_shut_down() {
     // }
     return ret;
 }
+
+// Async file open handler - enqueue work for the VFS worker (avoids blocking event loop)
+static void gps_file_open_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY_ARGS(TAG, "async file open request");
+    gps_context_t *gps = (gps_context_t*)handler_arg;
+    if (gps && !gps->files_opened) {
+        ILOG(TAG, "[%s] Requesting VFS worker to open files", __FUNCTION__);
+        vfs_post_work(VFS_WORK_OPEN_FILES, gps);
+    }
+}
+
+// Async file flush handler - enqueue flush work for the VFS worker
+static void gps_file_flush_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data) {
+    FUNC_ENTRY_ARGSD(TAG, "async file flush request");
+    gps_context_t *gps = (gps_context_t*)handler_arg;
+    if (gps && gps->files_opened) {
+        DLOG(TAG, "[%s] Requesting VFS worker to flush files", __FUNCTION__);
+        vfs_post_work(VFS_WORK_FLUSH_FILES, gps);
+    }
+}
+
+#endif

@@ -1,5 +1,4 @@
 #include "log_private.h"
-#include "gps_log_file.h"
 
 #if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
 
@@ -26,7 +25,7 @@
 #ifdef GPS_LOG_ENABLE_GPY
 #include "gpy.h"
 #endif
-#include "gps_log_events.h"
+#include "vfs.h"
 
 static const char *TAG = "gps_log";
 
@@ -51,10 +50,30 @@ static esp_err_t get_gps_scratch_buffer(logger_buffer_handle_t *handle) {
     return logger_buffer_pool_alloc(LOGGER_BUFFER_SMALL, LOGGER_BUFFER_USAGE_GPS_DATA, handle, portMAX_DELAY);
 }
 
+// Sync log_file_bits with current runtime config (g_rtc_config.gps)
+static void gps_log_sync_bits_from_config(gps_log_file_config_t *cfg) {
+    uint8_t bits = 0;
+
+    if (g_rtc_config.gps.log_ubx) SETBIT(bits, SD_UBX); else CLRBIT(bits, SD_UBX);
+    if (g_rtc_config.gps.log_sbp) SETBIT(bits, SD_SBP); else CLRBIT(bits, SD_SBP);
+    if (g_rtc_config.gps.log_gpx) SETBIT(bits, SD_GPX); else CLRBIT(bits, SD_GPX);
+#ifdef GPS_LOG_ENABLE_GPY
+    if (g_rtc_config.gps.log_gpy) SETBIT(bits, SD_GPY); else CLRBIT(bits, SD_GPY);
+#endif
+    if (g_rtc_config.gps.log_txt) SETBIT(bits, SD_TXT); else CLRBIT(bits, SD_TXT);
+
+    cfg->log_file_bits = bits;
+
+    // Ensure at least one format is enabled; fall back to SBP
+    if (!gps_log_file_bits_check(cfg->log_file_bits)) {
+        SETBIT(cfg->log_file_bits, SD_SBP);
+        g_rtc_config.gps.log_sbp = 1;
+    }
+}
+
 void gps_config_fix_values(void) {
     FUNC_ENTRY(TAG);
-    if(!gps_log_file_bits_check(log_config.log_file_bits))
-        SETBIT(log_config.log_file_bits, SD_SBP);
+    gps_log_sync_bits_from_config(&log_config);
 }
 
 // Helper function to release any GPS buffer
@@ -128,9 +147,9 @@ gps_log_file_config_t *log_config_init() {
     strbf_t buf;
     strbf_inits(&buf, log_config.base_path, ESP_VFS_PATH_MAX+1);
     if(vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point) {
-    struct stat sb = {0};
-    int statok=-1, i = 0;
-    strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
+        struct stat sb = {0};
+        int statok=-1, i = 0;
+        strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
     }
     strbf_finish(&buf);
     FUNC_ENTRY_ARGSD(TAG, "log path: %s", &log_config.base_path[0]);
@@ -170,6 +189,7 @@ void open_files(gps_context_t *context) {
     if (context->files_opened)
         return;
     gps_log_file_config_t *config = context->log_config;
+    config->log_file_open_bits = 0;
     // logger_config_t *cfg = config->config;
     // save_log_file_bits(context, log_config.log_file_bits);
     // Use direct config access instead of old sconfig API
@@ -181,7 +201,7 @@ void open_files(gps_context_t *context) {
     while (*filename == '/' || *filename == ' ')
         ++filename;
     strbf_t sb;
-    uint8_t *open_failed = 0;
+    uint8_t open_failed = 0;
     strbf_inits(&sb, config->filename_NO_EXT, PATH_MAX_CHAR_SIZE);
     // Use direct config access for file_date_time
     uint8_t value = g_rtc_config.gps.file_date_time;
@@ -240,6 +260,8 @@ void open_files(gps_context_t *context) {
 #endif
         }
     }
+        // Refresh selection from runtime config just before open
+        gps_log_sync_bits_from_config(config);
     const char * fn = 0;
     if(!gps_log_file_bits_check(config->log_file_bits)) // at least one file must be opened
         SETBIT(config->log_file_bits, SD_SBP);
@@ -276,11 +298,14 @@ void close_files(gps_context_t *context) {
         return;
     }
     gps_log_file_config_t *config = context->log_config;
-    for (int i = 0, j = SD_FD_END; i < j; ++i){
-        if (GETBIT(config->log_file_bits, i)) {
-            if(i == SD_GPX)
+    for (int i = 0, j = SD_FD_END; i < j; ++i) {
+        if (GETBIT(config->log_file_open_bits, i) || GET_FD(i) >= 0) {
+            if (i == SD_GPX) {
                 log_GPX(context, GPX_END);
+            }
             log_close(context, i);
+            config->log_file_open_bits &= (uint8_t)~(1u << i);
+            GET_FD(i) = -1;
         }
     }
     context->files_opened = 0;
@@ -318,27 +343,23 @@ void flush_files(const gps_context_t *context) {
 }
 
 void log_to_file(gps_context_t *context) {
-    if(!context || !context->files_opened) return;
-    // logger_config_t *config = context->log_config->config;
+    if(!context || !context->files_opened || context->time_set != 1) return;
+    
     ubx_ctx_t *ubx = context->ubx_device;
+    if (!ubx) return;  // Safety check
+    
     struct nav_pvt_s * nav_pvt = &ubx->ubx_msg.navPvt;
-    if (context->time_set == 1) {
-        strbf_t sb;
+    
+    // Check for lost frames (requires buffer)
+    if ((ubx->ubx_msg.count_nav_pvt > 10) && gps_read_msg_timeout(1)) {
         logger_buffer_handle_t scratch_handle = {0};
         
-        // Use buffer pool instead of stack allocation
-        if (get_gps_scratch_buffer(&scratch_handle) != ESP_OK) {
-            ELOG(TAG, "Failed to get GPS scratch buffer");
-            return;
-        }
-        
-        char *datastr = (char*)scratch_handle.buffer;
-        char *buffer = datastr + 200; // Use offset within same buffer for small temp buffer
-        
-        strbf_inits(&sb, datastr, 200); // Leave space for buffer offset
-        if ((context->files_opened) && (ubx->ubx_msg.count_nav_pvt > 10) && gps_read_msg_timeout(1)) {  // check for timeout navPvt message !!
-            // printf("sd log txt err\n");
-            context->next_gpy_full_frame = 1;
+        if (get_gps_scratch_buffer(&scratch_handle) == ESP_OK) {
+            strbf_t sb;
+            char *datastr = (char*)scratch_handle.buffer;
+            char *buffer = datastr + 200;
+            
+            strbf_inits(&sb, datastr, 200);
             time_to_char_hms(nav_pvt->hour, nav_pvt->minute, nav_pvt->second, buffer);
             strbf_puts(&sb, buffer);
             strbf_putc(&sb, ':');
@@ -351,25 +372,27 @@ void log_to_file(gps_context_t *context) {
             ++context->lost_frames;
             WLOG(TAG, "Lost ubx frame frame: %lu, time: %s", ubx->ubx_msg.count_nav_pvt, buffer);
             esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
+            
+            release_gps_buffer(&scratch_handle);
         }
-        
-        // Release buffer when done with this section
-        release_gps_buffer(&scratch_handle);
-        
-        if (GETBIT(context->log_config->log_file_bits, SD_UBX)) {
-            log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
-        }
+        return;  // Don't log data on frame timeout
+    }
+    
+    // Log data in all enabled formats (consolidated bit checks)
+    uint8_t log_bits = context->log_config->log_file_bits;
+    if (GETBIT(log_bits, SD_UBX)) {
+        log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
+    }
 #ifdef GPS_LOG_ENABLE_GPY
-        if (GETBIT(context->log_config->log_file_bits, SD_GPY)) {
-            log_GPY(context);
-        }
+    if (GETBIT(log_bits, SD_GPY)) {
+        log_GPY(context);
+    }
 #endif
-        if (GETBIT(context->log_config->log_file_bits, SD_SBP)) {
-            log_SBP(context);
-        }
-        if (GETBIT(context->log_config->log_file_bits, SD_GPX)) {
-            log_GPX(context, GPX_FRAME);
-        }
+    if (GETBIT(log_bits, SD_SBP)) {
+        log_SBP(context);
+    }
+    if (GETBIT(log_bits, SD_GPX)) {
+        log_GPX(context, GPX_FRAME);
     }
 }
 
@@ -460,11 +483,12 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_puts(&sb, ubxMessage->mon_ver.hwVersion);
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Ublox ");
-    strbf_puts(&sb, ubx_chip_str(ubx));
+    strbf_puts(&sb, ubx_get_dev_str());
     strbf_puts(&sb, " ID = ");
     strbf_sprintf(&sb,"%02x%02x%02x%02x%02x", &ubxMessage->ubxId.ubx_id_1, &ubxMessage->ubxId.ubx_id_2, &ubxMessage->ubxId.ubx_id_3, &ubxMessage->ubxId.ubx_id_4, &ubxMessage->ubxId.ubx_id_5);
     if (ubx->hw_type > UBX_TYPE_M8)
         strbf_sprintf(&sb, "%02x", ubxMessage->ubxId.ubx_id_6);
+    strbf_putc(&sb, '\n');
     WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
     FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
     
@@ -479,14 +503,14 @@ const char * strings[] = {
 
 static void result_speed_avg(gps_speed_t *speed, strbf_t *sb, const char * units, const char * unit, uint16_t window, char *tekst) {
     f3_to_char(get_avg(&speed->runs[0]), tekst);
-    strbf_puts(sb, tekst);
-    strbf_puts(sb, units);
-    strbf_putc(sb, ' ');
     strbf_puts(sb, strings[0]);
     strbf_putc(sb, ' ');
     strbf_puts(sb, unit);
     strbf_putl(sb, window);
-    strbf_puts(sb, " avg 5_best_runs ");
+    strbf_puts(sb, " avg_5: ");
+    strbf_puts(sb, tekst);
+    strbf_puts(sb, units);
+    strbf_puts(sb, ", best_runs ");
     strbf_puts(sb, strings[0]);
     strbf_putc(sb, '\n');
 }
@@ -594,8 +618,8 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
         strbf_putl(&sb, me->time_window);
         if (g_rtc_config.ubx.msgout_sat) {
             strbf_sprintf(&sb, " CNO Max: %u Avg: %u Min: %u nr Sat: %u", run->data.time.Max_cno, run->data.time.Mean_cno, run->data.time.Min_cno, run->data.time.Mean_numSat);
-        } else
-            strbf_puts(&sb, "\n");
+        }
+        strbf_puts(&sb, "\n");
         WRITETXT(message, sb.cur - sb.start);
         FUNC_ENTRY_ARGSD(TAG, "%s", sb.start);
         strbf_reset(&sb);

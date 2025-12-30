@@ -10,13 +10,11 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
 #include <esp_err.h>
-#if defined(CONFIG_LOGGER_VFS_ENABLED)
-#include "vfs.h"
-#else
 #include "esp_vfs.h"
+
 #include "logger_common.h"
-#endif
 
 #define PATH_MAX_CHAR_SIZE 64
 #define MAC2STR2(a) *(a), *((a)+1), *((a)+2), *((a)+3), *((a)+4), *((a)+5)

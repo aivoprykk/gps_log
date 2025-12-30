@@ -4,10 +4,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include "sdkconfig.h"
+#include "gps_log.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
 #include "config.h"
 #include "unified_config.h"
+#include "gps_log_events.h"
+#include "dstat_screens.h"
 
 struct gps_context_s;
 

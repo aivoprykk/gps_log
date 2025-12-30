@@ -67,6 +67,14 @@ void gps_check_alfa_buf(size_t new_size) {
     check_and_alloc_buffer((void **)&log_p_lctx.alfa_buf, new_size, sizeof(gps_point_t), &log_p_lctx.alfa_buf_size, MALLOC_CAP_8BIT);
     if (log_p_lctx.alfa_buf) {
         memset(log_p_lctx.alfa_buf, 0, new_size * sizeof(gps_point_t));
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+        WLOG(TAG, "[%s] alfa buffer resized: requested=%zu elems (%zu bytes), allocated=%hu elems (%zu bytes)",
+             __func__,
+             new_size,
+             new_size * sizeof(gps_point_t),
+             log_p_lctx.alfa_buf_size,
+             (size_t)log_p_lctx.alfa_buf_size * sizeof(gps_point_t));
+#endif
     }
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
     else {
@@ -197,6 +205,7 @@ int32_t gps_last_sec_speed_smoothed(uint8_t window_size) {
 void init_gps_context_fields(gps_context_t *ctx) {
     FUNC_ENTRY(TAG);
     if(!ctx) return;
+    if(ctx->gps_fields_initialized) return;
     init_gps_data(&ctx->Ublox);  // create an object storing GPS_data !
     init_gps_sat_info(&ctx->Ublox_Sat);  // create an object storing GPS_SAT info !
     if (ctx->ubx_device == NULL){
@@ -220,12 +229,13 @@ void init_gps_context_fields(gps_context_t *ctx) {
         esp_timer_start_periodic(gps_timer, SEC_TO_US(5));
     }
 #endif
-    ctx->Gps_fields_OK = 1;
+    ctx->gps_fields_initialized = 1;
 }
 
 void deinit_gps_context_fields(gps_context_t *ctx) {
     FUNC_ENTRY(TAG);
     if(!ctx) return;
+    if(!ctx->gps_fields_initialized) return;
     if (ctx->ubx_device != NULL){
         ubx_ctx_delete(ctx->ubx_device);
         ctx->ubx_device = NULL;
@@ -252,7 +262,7 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
 #endif
     gps_speed_metrics_free();
     gps_user_cfg_deinit();
-    ctx->Gps_fields_OK = 0;
+    ctx->gps_fields_initialized = 0;
 }
 
 #if defined(GPS_STATS)
@@ -349,12 +359,14 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
             if (((spd2s > 29500 && g_rtc_config.ubx.nav_mode == UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
                 || (spd2s > 23750 && g_rtc_config.ubx.nav_mode == UBX_MODE_SEA))) { /// change over 24ms 85kmh
                 log_p_lctx.dynamic_state = 1;
-                ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
+                // ILOG(TAG, "Switching to UBX_MODE_PORTABLE due to speed: %.2f m/s", spd2s / 1000.0f);
+                g_rtc_config.ubx.nav_mode = UBX_MODE_PORTABLE;
             }
             else if (spd2s < 28500 && g_rtc_config.ubx.nav_mode == UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
                 /// switch to dynamic_model "pedestrian" below 30ms as "portable" is less accurate
                 log_p_lctx.dynamic_state = 1;
-                ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
+                // ILOG(TAG, "Switching to UBX_MODE_PEDESTRIAN due to speed: %.2f m/s", spd2s / 1000.0f);
+                g_rtc_config.ubx.nav_mode = UBX_MODE_PEDESTRIAN;
             }
             if(log_p_lctx.dynamic_state==1) changed=1;
         }
@@ -362,16 +374,18 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
             /// switch back to "pedestrian" below 27ms as "pedestrian" is more accurate
             if(spd2s < 27500 && (g_rtc_config.ubx.nav_mode == UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
                 log_p_lctx.dynamic_state = 0;
-                ubx_set_nav_mode(ubx, UBX_MODE_PEDESTRIAN);
+                // ILOG(TAG, "Switching to UBX_MODE_PEDESTRIAN due to speed: %.2f m/s", spd2s / 1000.0f);
+                g_rtc_config.ubx.nav_mode = UBX_MODE_PEDESTRIAN;
             }
             else if(spd2s < 21750 && (g_rtc_config.ubx.nav_mode == UBX_MODE_SEA)) { /// change below 24ms 86kmh
                 log_p_lctx.dynamic_state = 0;
-                ubx_set_nav_mode(ubx, UBX_MODE_SEA);
+                // ILOG(TAG, "Switching to UBX_MODE_SEA due to speed: %.2f m/s", spd2s / 1000.0f);
+                g_rtc_config.ubx.nav_mode = UBX_MODE_SEA;
             }
             else if (spd2s > 29500 && g_rtc_config.ubx.nav_mode == UBX_MODE_PORTABLE) { /// change above 28ms 100kmh
                 log_p_lctx.dynamic_state = 0;
-                ubx_set_nav_mode(ubx, UBX_MODE_PORTABLE);
-
+                // ILOG(TAG, "Switching to UBX_MODE_PORTABLE due to speed: %.2f m/s", spd2s / 1000.0f);
+                g_rtc_config.ubx.nav_mode = UBX_MODE_PORTABLE;
             }
             if(log_p_lctx.dynamic_state==0) changed=1;
         }
@@ -396,7 +410,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me, float lat
     // !!******************************************************
     update_sec_speed_buffer(gSpeed, sample_rate);
     xSemaphoreGive(log_p_lctx.xMutex);
-#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+#if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
     WLOG(TAG, "-- gSpeed: %lu, sAcc: %lu, numSv: %hhu --", gSpeed, ubxMessage->navPvt.sAcc, ubxMessage->navPvt.numSV);
 #endif
     return ESP_OK;

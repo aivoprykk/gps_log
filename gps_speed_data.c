@@ -466,7 +466,7 @@ void gps_speed_metrics_free(void) {
 }
 
 void gps_speed_metrics_update(void) {
-    FUNC_ENTRY_ARGS(TAG, "sets: %hu", gps->num_speed_metrics);
+    FUNC_ENTRY_ARGSD(TAG, "sets: %hu", gps->num_speed_metrics);
     if (!gps->speed_metrics || gps->num_speed_metrics == 0) {
         return;
     }
@@ -489,7 +489,7 @@ void gps_speed_metrics_update(void) {
 }
 
 void refresh_gps_speeds_by_distance(void) {
-    FUNC_ENTRY(TAG);
+    FUNC_ENTRYD(TAG);
     for(uint8_t i = 0, j = gps->num_speed_metrics; i < j; i++) {
         if (!(gps->speed_metrics[i].type  & (GPS_SPEED_TYPE_DIST))) continue;
         if (gps->speed_metrics[i].window == 0) continue; // skip zero window sets
@@ -1321,7 +1321,7 @@ float alfa_indicator(float actual_heading) {
 
     gps->alfa_exit = point_to_line_distance_optimized(&log_p_lctx.alfa_p1, &cur, &prev); // turn-250m point distance to line {cur,cur-2sec}
     gps->alfa_window = point_to_line_distance_optimized(&cur, &log_p_lctx.alfa_p1, &log_p_lctx.alfa_p2); // cur point distance to line {turn-m250,turn-m100}
-#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+#if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
     printf("[%s] run: %hu, exit: %.1f, window: %.1f, atdist: %.1f\n", __func__, 
             gps->run_count, gps->alfa_exit, 
             gps->alfa_window, 
