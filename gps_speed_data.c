@@ -145,12 +145,12 @@ static inline void log_gps_error_simple(gps_error_type_t error_type, gps_metric_
 
 // Pre-calculated constants for performance optimization
 static const float DEG2RAD_CONST = M_PI / 180.0f;
-static const float RAD2DEG_CONST = 180.0f / M_PI;
+// static const float RAD2DEG_CONST = 180.0f / M_PI;
 static const float EARTH_RADIUS_M_CONST = 6371000.0f;
 static const float SPEED_THRESHOLD_MIN = 3000.0f; // 3 m/s in mm/s
-static const float SPEED_THRESHOLD_BAR = 5000.0f; // 5 m/s in mm/s
+//static const float SPEED_THRESHOLD_BAR = 5000.0f; // 5 m/s in mm/s
 static const float ALFA_THRESHOLD = 50.0f; // 50 meters
-static const uint32_t TIME_WINDOW_SAMPLES_2S = 2; // Will be multiplied by sample_rate
+// static const uint32_t TIME_WINDOW_SAMPLES_2S = 2; // Will be multiplied by sample_rate
 static const uint32_t TIME_WINDOW_SAMPLES_15S = 15;
 
 static const gps_speed_metrics_cfg_t initial_speed_metrics_sets[] = {

@@ -43,6 +43,11 @@ menu "Logger GPS Log Module Configuration"
             Enable comprehensive error logging for GPS speed metrics initialization 
             and memory allocation failures. Errors will be written to .txt log files 
             for persistent debugging. Disable to reduce program size and memory usage.
+    config GPS_TIMER_STATS_ENABLED
+        bool "Enable GPS Log Module Timer Stats"
+        default n
+        help
+            Enable GPS Log Module Timer Stats
     choice
         bool "Default log verbosity"
         default GPS_LOG_LEVEL_ERROR

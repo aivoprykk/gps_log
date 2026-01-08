@@ -26,24 +26,24 @@ static const char * TAG = "gps_user_cfg"; // for logging
 #define gps_user_cfg_item_count 0 // Disabled during refactor
 
 // Optimized string constants to reduce memory usage
-static const char str_on[] = "on";
-static const char str_off[] = "off";
-static const char str_not_set[] = "not set";
-static const char str_ubx[] = ".ubx";
-static const char str_sbp[] = ".sbp";
-static const char str_txt[] = ".txt";
-static const char str_gpx[] = ".gpx";
-static const char str_gpy[] = ".gpy";
+// static const char str_on[] = "on";
+// static const char str_off[] = "off";
+// static const char str_not_set[] = "not set";
+// static const char str_ubx[] = ".ubx";
+// static const char str_sbp[] = ".sbp";
+// static const char str_txt[] = ".txt";
+// static const char str_gpx[] = ".gpx";
+// static const char str_gpy[] = ".gpy";
 
 // Pre-calculated timeout for common semaphore operations
-static const TickType_t timeout_max = portMAX_DELAY;
+// static const TickType_t timeout_max = portMAX_DELAY;
 
 // Sample rate conversion: index 0-5 -> rate 1,2,5,10,16,20
-static const uint8_t sample_rate_values[] = {1, 2, 5, 10, 16, 20};
+// static const uint8_t sample_rate_values[] = {1, 2, 5, 10, 16, 20};
 
 // Sample rate conversion: index 0-4 -> Hz values 1,5,10,15,20
 // Sample rate conversion: index 0-5 -> rate 1,2,5,10,16,20
-static const uint8_t sample_rates_hz[] = {1, 2, 5, 10, 16, 20};
+// static const uint8_t sample_rates_hz[] = {1, 2, 5, 10, 16, 20};
 
 static SemaphoreHandle_t c_sem_lock = 0;
 // GPS config is now part of unified RTC config

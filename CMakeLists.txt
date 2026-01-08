@@ -14,7 +14,7 @@ SET(INCLUDE include)
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS ${INCLUDE}
-    PRIV_REQUIRES logger_common strutil logger_config
+    PRIV_REQUIRES logger_common strutil logger_config logger_context
 )
 if(CONFIG_UBLOX_ENABLED)
     target_link_libraries(${COMPONENT_LIB} PRIVATE idf::logger_ubx)

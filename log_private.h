@@ -152,15 +152,9 @@ inline bool gps_log_file_bits_check(uint8_t log_file_bits) {
     return (GETBIT(log_file_bits, SD_UBX) || GETBIT(log_file_bits, SD_SBP) || GETBIT(log_file_bits, SD_GPX));
 }
 
-inline float get_spd(float b) {
-    return convert_speed(b, g_rtc_config.gps.speed_unit);
-}
+extern float get_spd(float b);
 
-inline float get_avg5(const float *arr, float (*conv)(float), int start_index) {
-    float sum = 0.0f;
-    for (int i = start_index, end_index = start_index + 5; i < end_index; ++i) sum += arr[i];
-    return conv ? conv(sum / 5.0f) : (sum / 5.0f);
-}
+extern float get_avg5(const float *arr, float (*conv)(float), int start_index);
 
 inline float get_display_avg(const gps_display_t *b) {
     return b ? get_avg5(b->display_speed, get_spd, IDX_OF_SPD_ARRAY_MIN_SPD) : 0.0f;
