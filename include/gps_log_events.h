@@ -29,7 +29,8 @@ extern "C" {
     l(GPS_NAV_MODE_CHANGED) \
     l(CFG_SET) \
     l(CFG_GET) \
-    l(CFG_CHANGED)
+    l(CFG_CHANGED) \
+    l(CONFIG_REFRESHED)
 
 ESP_EVENT_DECLARE_BASE(GPS_LOG_EVENT);        // declaration of the LOG_EVENT family
 // declaration of the specific events under the LOG_EVENT family

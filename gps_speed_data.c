@@ -59,7 +59,7 @@ static const char* const gps_metric_name_strings[GPS_METRIC_COUNT] = {
 static void log_gps_error_with_details(gps_error_type_t error_type, gps_metric_name_t metric_name, const char* format, ...) {
     // Only log to file if GPS context and TXT file are available
     extern struct gps_context_s *gps;
-    if (!gps || !gps->files_opened || !GETBIT(gps->log_config->log_file_bits, SD_TXT) || GET_FD(SD_TXT) <= 0) {
+    if (!gps || !gps->files_opened || !g_rtc_config.gps.log_enables.bits.log_txt || GET_FD(sd_log_txt) <= 0) {
         return;
     }
     
@@ -103,7 +103,7 @@ static void log_gps_error_simple(gps_error_type_t error_type, gps_metric_name_t 
 static void log_gps_metrics_error_to_file(const char* error_type, const char* metric_name, const char* details) {
     // Only log to file if GPS context and TXT file are available
     extern struct gps_context_s *gps;
-    if (!gps || !gps->files_opened || !GETBIT(gps->log_config->log_file_bits, SD_TXT) || GET_FD(SD_TXT) <= 0) {
+    if (!gps || !gps->files_opened || !g_rtc_config.gps.log_enables.bits.log_txt || GET_FD(sd_log_txt) <= 0) {
         return;
     }
     
@@ -742,7 +742,7 @@ static inline void store_dist_data(struct gps_speed_by_dist_s *me) {
     if (store_run_max_speed(&me->speed, gps->run_count)) {  // store max speed of this run
         me->speed.runs[0].data.dist.dist = me->distance;
         me->speed.runs[0].data.dist.nr_samples = me->m_sample;
-        me->speed.runs[0].data.dist.message_nr = gps->ubx_device->ubx_msg.count_nav_pvt;
+        me->speed.runs[0].data.dist.message_nr = log_p_lctx.count_nav_pvt;
     }
     update_display_speeds(&me->speed, &gps->record);
 }
@@ -1140,7 +1140,7 @@ static float point_to_line_distance_optimized(const gps_point_t * act, const gps
 static inline void store_alfa_data(struct gps_speed_alfa_s *me, uint32_t dist) {
     // printf("[%s]\n", __func__);
     if (store_run_max_speed(&me->speed, gps->run_count)) {
-        me->speed.runs[0].data.alfa.message_nr = gps->ubx_device->ubx_msg.count_nav_pvt;
+        me->speed.runs[0].data.alfa.message_nr = log_p_lctx.count_nav_pvt;
         me->speed.runs[0].data.alfa.real_distance = (int32_t)me->straight_dist_square;
         me->speed.runs[0].data.alfa.dist = dist;
     }

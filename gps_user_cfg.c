@@ -136,38 +136,37 @@ static void gps_config_load_from_nvs(void) {
     item = get_sconfig_item(SCONFIG_GROUP_GPS, gps_cfg_log_txt);
     if (item) {
         bool enabled = sconfig_get_bool(item);
-        g_rtc_config.gps.log_txt = enabled;
-        if (enabled) SETBIT(log_config.log_file_bits, SD_TXT);
-        else CLRBIT(log_config.log_file_bits, SD_TXT);
+        g_rtc_config.gps.log_enables.bits.log_txt = enabled;
+        log_config.log_file_enables.bits.log_txt = enabled;
     }
     
     item = get_sconfig_item(SCONFIG_GROUP_GPS, gps_cfg_log_ubx);
     if (item) {
         bool enabled = sconfig_get_bool(item);
-        g_rtc_config.gps.log_ubx = enabled;
-        if (enabled) SETBIT(log_config.log_file_bits, SD_UBX);
-        else CLRBIT(log_config.log_file_bits, SD_UBX);
+        g_rtc_config.gps.log_enables.bits.log_ubx = enabled;
+        log_config.log_file_enables.bits.log_ubx = enabled;
     }
     
     item = get_sconfig_item(SCONFIG_GROUP_GPS, gps_cfg_log_sbp);
     if (item) {
         bool enabled = sconfig_get_bool(item);
-        g_rtc_config.gps.log_sbp = enabled;
-        if (enabled) SETBIT(log_config.log_file_bits, SD_SBP);
-        else CLRBIT(log_config.log_file_bits, SD_SBP);
+        g_rtc_config.gps.log_enables.bits.log_sbp = enabled;
+        log_config.log_file_enables.bits.log_sbp = enabled;
     }
     
     item = get_sconfig_item(SCONFIG_GROUP_GPS, gps_cfg_log_gpx);
     if (item) {
-        if (sconfig_get_bool(item)) SETBIT(log_config.log_file_bits, SD_GPX);
-        else CLRBIT(log_config.log_file_bits, SD_GPX);
+        bool enabled = sconfig_get_bool(item);
+        g_rtc_config.gps.log_enables.bits.log_gpx = enabled;
+        log_config.log_file_enables.bits.log_gpx = enabled;
     }
     
 #ifdef GPS_LOG_ENABLE_GPY
     item = get_sconfig_item(SCONFIG_GROUP_GPS, gps_cfg_log_gpy);
     if (item) {
-        if (sconfig_get_bool(item)) SETBIT(log_config.log_file_bits, SD_GPY);
-        else CLRBIT(log_config.log_file_bits, SD_GPY);
+        bool enabled = sconfig_get_bool(item);
+        g_rtc_config.gps.log_enables.bits.log_gpy = enabled;
+        log_config.log_file_enables.bits.log_gpy = enabled;
     }
 #endif
     
@@ -327,17 +326,17 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
                 }
                 break;
             case gps_cfg_log_txt: // || !strcmp(var, "logTXT")) {  // switchinf off .txt files
-                ret = set_bit(item, &log_config.log_file_bits, SD_TXT, 0);
+                ret = set_bit(item, &log_config.log_file_enables.value, SD_TXT, 0);
                 if(!ret) {
-                    bool val = GETBIT(log_config.log_file_bits, SD_TXT) ? true : false;
+                    bool val = (log_config.log_file_enables.value & (1 << SD_TXT)) ? true : false;
                     config_gps_set_item(index, &val);
                     changed = gps_cfg_log_txt;
                 }
                 goto test_if_log_set; // if no log file selected, set SBP as default
             case gps_cfg_log_ubx: // || !strcmp(var, "logUBX")) {  // log to .ubx
-                ret = set_bit(item, &log_config.log_file_bits, SD_UBX, 0);
+                ret = set_bit(item, &log_config.log_file_enables.value, SD_UBX, 0);
                 if(!ret) {
-                    bool val = GETBIT(log_config.log_file_bits, SD_UBX) ? true : false;
+                    bool val = (log_config.log_file_enables.value & (1 << SD_UBX)) ? true : false;
                     config_gps_set_item(index, &val);
                     changed = gps_cfg_log_ubx;
                 }
@@ -350,29 +349,29 @@ uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
                 }
                 goto test_if_log_set; // if no log file selected, set SBP as default
             case gps_cfg_log_sbp: // || !strcmp(var, "logSBP")) {  // log to .sbp
-                ret = set_bit(item, &log_config.log_file_bits, SD_SBP, 0);
+                ret = set_bit(item, &log_config.log_file_enables.value, SD_SBP, 0);
                 if(!ret) {
-                    bool val = GETBIT(log_config.log_file_bits, SD_SBP) ? true : false;
+                    bool val = (log_config.log_file_enables.value & (1 << SD_SBP)) ? true : false;
                     config_gps_set_item(index, &val);
                     changed = gps_cfg_log_sbp;
                 }
                 test_if_log_set:
-                if(!gps_log_file_bits_check(log_config.log_file_bits))
-                    SETBIT(log_config.log_file_bits, SD_SBP); // set SBP if none selected
+                if(!gps_log_file_bits_check(&log_config.log_file_enables))
+                    log_config.log_file_enables.bits.log_sbp = 1; // set SBP if none selected
                 break;
             case gps_cfg_log_gpx: //  || !strcmp(var, "logGPX")) {
-                ret = set_bit(item, &log_config.log_file_bits, SD_GPX, 0);
+                ret = set_bit(item, &log_config.log_file_enables.value, SD_GPX, 0);
                 if(!ret) {
-                    bool val = GETBIT(log_config.log_file_bits, SD_GPX) ? true : false;
+                    bool val = (log_config.log_file_enables.value & (1 << SD_GPX)) ? true : false;
                     config_gps_set_item(index, &val);
                     changed = gps_cfg_log_gpx;
                 }
                 goto test_if_log_set; // if no log file selected, set SBP as default
 #ifdef GPS_LOG_ENABLE_GPY
             case gps_cfg_log_gpy: // || !strcmp(var, "logGPY")) {
-                ret = set_bit(item, &log_config.log_file_bits, SD_GPY, 0);
+                ret = set_bit(item, &log_config.log_file_enables.value, SD_GPY, 0);
                 if(!ret) {
-                    bool val = GETBIT(log_config.log_file_bits, SD_GPY) ? true : false;
+                    bool val = (log_config.log_file_enables.value & (1 << SD_GPY)) ? true : false;
                     config_gps_set_item(index, &val);
                     changed = gps_cfg_log_gpy;
                 }

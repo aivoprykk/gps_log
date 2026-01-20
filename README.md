@@ -107,15 +107,15 @@ if (gps_start() == ESP_OK) {
 // Initialize log configuration
 gps_log_file_config_t *log_config = log_config_init();
 strcpy(log_config->base_path, "/sdcard");
-strcpy(log_config->filename_NO_EXT, "gps_track");
+strcpy(log_config->filename_base, "gps_track");
 
 // Open log files
 open_files(&gps_context);
 
 // Enable specific log formats
-log_config->log_file_bits |= (1 << SD_TXT);  // Enable TXT logging
-log_config->log_file_bits |= (1 << SD_GPX);  // Enable GPX logging
-log_config->log_file_bits |= (1 << SD_UBX);  // Enable UBX logging
+log_config->log_file_enables.bits.log_txt = 1;  // Enable TXT logging
+log_config->log_file_enables.bits.log_gpx = 1;  // Enable GPX logging
+log_config->log_file_enables.bits.log_ubx = 1;  // Enable UBX logging
 ```
 
 ### GPS Data Access
@@ -285,8 +285,8 @@ ESP_LOGI(TAG, "Satellites: %d used, %d visible",
 // Check file status
 ESP_LOGI(TAG, "Files opened: %s", log_files_opened(&gps_context) ? "YES" : "NO");
 for (int i = 0; i < SD_FD_END; i++) {
-    if (log_config.filefds[i] >= 0) {
-        ESP_LOGI(TAG, "File %d: %s", i, log_config.filenames[i]);
+    if (log_config->filefds[i] >= 0) {
+        ESP_LOGI(TAG, "File %d: %s", i, log_config->filenames[i]);
     }
 }
 ```

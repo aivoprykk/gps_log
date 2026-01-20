@@ -122,7 +122,7 @@ static void print_stats(const char *phase_name, uint8_t num_satellites) {
         printf("\nREAL GPS PIPELINE STATS:\n");
         printf("  UBX Messages: total=%" PRIu32 " pvt=%" PRIu32 " sat=%" PRIu32 " errors=%" PRIu32 "\n",
                ubx->ubx_msg.count_msg,
-               ubx->ubx_msg.count_nav_pvt,
+               log_p_lctx.count_nav_pvt,
                ubx->ubx_msg.count_nav_sat,
                ubx->ubx_msg.count_err);
         printf("  GPS Context: time_set=%d signal_ok=%d files_open=%d run_count=%d\n",
@@ -138,6 +138,14 @@ static void print_stats(const char *phase_name, uint8_t num_satellites) {
     }
     
     printf("=====================================\n\n");
+    
+    // Print detailed three-tier pipeline statistics
+#if defined(CONFIG_GPS_TIMER_STATS_ENABLED)
+    if (gps && gps->ubx_device) {
+        gps_log_print_all_stats((void*)gps->ubx_device);
+    }
+#endif
+    
     stats.last_stats_ms = now_ms;
 }
 

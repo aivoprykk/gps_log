@@ -15,34 +15,39 @@ extern "C" {
 #include "esp_vfs.h"
 
 #include "logger_common.h"
+#include "config_gps.h"
 
 #define PATH_MAX_CHAR_SIZE 64
 #define MAC2STR2(a) *(a), *((a)+1), *((a)+2), *((a)+3), *((a)+4), *((a)+5)
 
-#if defined(GPS_LOG_ENABLE_GPY)
-#define SD_FD_LIST(l) l(SD_TXT) l(SD_SBP) l(SD_UBX) l(SD_GPX) l(SD_GPY)
-#define SD_FILE_DEFAULT_CONFIG { {0}, {0}, {0}, {0}, {0}}
-#define SD_FILE_DEFAULT_FDS { -1, -1, -1, -1, -1 }
+#define VAL_A(a) {0},
+#define VAL_B(a) -1,
+#define ENUM_A(a) sd_ ## a,
+
+/// copy from config_gps.h
+#if defined (CONFIG_GPS_LOG_GPY)
+#define CFG_GPS_USER_FILE_ITEMS_LL(l) l(log_gpy)
 #else
-#define SD_FD_LIST(l) l(SD_TXT) l(SD_SBP) l(SD_UBX) l(SD_GPX)
-#define SD_FILE_DEFAULT_CONFIG { {0}, {0}, {0}, {0}}
-#define SD_FILE_DEFAULT_FDS { -1, -1, -1, -1 }
+#define CFG_GPS_USER_FILE_ITEMS_LL(l)
 #endif
+#define CFG_GPS_FILE_ITEMS(l) l(log_txt) l(log_sbp) l(log_ubx) l(log_gpx) CFG_GPS_USER_FILE_ITEMS_LL(l)
+/// end copy from config_gps.h
+
+#define SD_FILE_DEFAULT_CONFIG { CFG_GPS_FILE_ITEMS(VAL_A) }
+#define SD_FILE_DEFAULT_FDS { CFG_GPS_FILE_ITEMS(VAL_B) }
 
 typedef enum {
-    SD_FD_LIST(ENUM)
-    SD_FD_END
+    CFG_GPS_FILE_ITEMS(ENUM_A)
+    sd_log_end
 } sd_fd_t;
 
 struct logger_config_s;
 
 typedef struct gps_log_file_config_s {    
-    char filename_NO_EXT[PATH_MAX_CHAR_SIZE];  // 64
+    char filename_base[PATH_MAX_CHAR_SIZE];  // 64
 
-    char filenames[SD_FD_END][PATH_MAX_CHAR_SIZE];     // 512
-    int filefds[SD_FD_END];                     // 544
-    uint8_t log_file_bits;
-    uint8_t log_file_open_bits;
+    char filenames[sd_log_end][PATH_MAX_CHAR_SIZE];     // 512
+    int filefds[sd_log_end];                     // 544
 
     char base_path[ESP_VFS_PATH_MAX + 1];
 
@@ -50,11 +55,9 @@ typedef struct gps_log_file_config_s {
 } gps_log_file_config_t;
 
 #define GPS_LOG_DEFAULT_CONFIG() (gps_log_file_config_t){ \
-    .filename_NO_EXT = {0}, \
+    .filename_base = {0}, \
     .filenames = SD_FILE_DEFAULT_CONFIG, \
     .filefds = SD_FILE_DEFAULT_FDS, \
-    .log_file_bits = 0, \
-    .log_file_open_bits = 0, \
 }
 
 extern gps_log_file_config_t log_config;
@@ -64,7 +67,14 @@ struct gps_data_s;
 struct gps_context_s;
 struct ubx_msg_s;
 
-gps_log_file_config_t *log_config_init();
+// Check if GPS log partition is available and ready for logging
+bool gps_log_partition_is_available(void);
+
+// Register/unregister VFS event handlers to track partition availability
+void gps_log_register_vfs_handler(void);
+void gps_log_unregister_vfs_handler(void);
+
+gps_log_file_config_t *gps_log_config_init(void);
 void log_err(const struct gps_context_s * context, const char *message);
 void open_files(struct gps_context_s * context);
 void close_files(struct gps_context_s *context);

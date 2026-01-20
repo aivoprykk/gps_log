@@ -80,6 +80,8 @@ typedef struct gps_context_s {
     bool gps_is_moving;
     uint8_t skip_alfa_after_stop;
     gps_run_t max_speed;
+    uint8_t frame_lost_flag;
+    uint8_t gps_timeout_flag;
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG() { \
@@ -109,6 +111,8 @@ typedef struct gps_context_s {
     .gps_is_moving = false, \
     .skip_alfa_after_stop = 0, \
     .max_speed = GPS_RUN_DEFAULT_CONFIG(), \
+    .frame_lost_flag = 0, \
+    .gps_timeout_flag = 0 \
 }
 
 extern gps_context_t * gps;

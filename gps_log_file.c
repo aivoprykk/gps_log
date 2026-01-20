@@ -26,6 +26,7 @@
 #include "gpy.h"
 #endif
 #include "vfs.h"
+#include "vfs_events.h"
 #include "context.h"
 
 #include "freertos/FreeRTOS.h"
@@ -63,7 +64,7 @@ typedef enum {
 
 typedef struct {
     async_write_request_type_t type;
-    uint8_t file_index;           // SD_UBX, SD_SBP, etc.
+    uint8_t file_index;           // sd_log_ubx, sd_log_sbp, etc.
     const uint8_t *data;          // Data to write (only for DATA type)
     size_t len;                   // Length of data
 } async_write_request_t;
@@ -119,22 +120,9 @@ static esp_err_t get_gps_scratch_buffer(logger_buffer_handle_t *handle) {
 
 // Sync log_file_bits with current runtime config (g_rtc_config.gps)
 static void gps_log_sync_bits_from_config(gps_log_file_config_t *cfg) {
-    uint8_t bits = 0;
-
-    if (g_rtc_config.gps.log_ubx) SETBIT(bits, SD_UBX); else CLRBIT(bits, SD_UBX);
-    if (g_rtc_config.gps.log_sbp) SETBIT(bits, SD_SBP); else CLRBIT(bits, SD_SBP);
-    if (g_rtc_config.gps.log_gpx) SETBIT(bits, SD_GPX); else CLRBIT(bits, SD_GPX);
-#ifdef GPS_LOG_ENABLE_GPY
-    if (g_rtc_config.gps.log_gpy) SETBIT(bits, SD_GPY); else CLRBIT(bits, SD_GPY);
-#endif
-    if (g_rtc_config.gps.log_txt) SETBIT(bits, SD_TXT); else CLRBIT(bits, SD_TXT);
-
-    cfg->log_file_bits = bits;
-
     // Ensure at least one format is enabled; fall back to SBP
-    if (!gps_log_file_bits_check(cfg->log_file_bits)) {
-        SETBIT(cfg->log_file_bits, SD_SBP);
-        g_rtc_config.gps.log_sbp = 1;
+    if (!gps_log_file_bits_check(&g_rtc_config.gps.log_enables)) {
+        g_rtc_config.gps.log_enables.bits.log_sbp = 1;
     }
 }
 
@@ -378,7 +366,7 @@ void async_writer_stop(void) {
 
 /**
  * @brief Queue async write request (non-blocking)
- * @param file_index File index (SD_UBX, SD_SBP, etc.)
+ * @param file_index File index (sd_log_ubx, sd_log_sbp, etc.)
  * @param data Data to write (will be copied and freed by writer task)
  * @param len Length of data
  * @return ESP_OK on success, error otherwise
@@ -462,6 +450,103 @@ static esp_err_t queue_async_close(uint8_t file_index) {
 }
 
 // ============================================================================
+// VFS EVENT HANDLERS - Reinitialize logging config when partition available
+// ============================================================================
+
+/**
+ * @brief Handle VFS partition discovery - reinitialize log config when partition becomes available
+ * This ensures logging can start as soon as storage is discovered by VFS
+ */
+static void vfs_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    if (event_base != VFS_EVENT) {
+        return;
+    }
+
+    // Detect mount-like events that may make storage available
+    bool is_mount_event = false;
+    bool is_unmount_event = false;
+
+    switch (event_id) {
+        case VFS_EVENT_SDCARD_MOUNTED:
+        case VFS_EVENT_FAT_PARTITION_MOUNTED:
+#if defined(CONFIG_LITTLEFS_ENABLED)
+        case VFS_EVENT_LITTEFS_PARTITION_MOUNTED:
+#endif
+#if defined(CONFIG_SPIFFS_ENABLED)
+        case VFS_EVENT_SPIFFS_PARTITION_MOUNTED:
+#endif
+        case VFS_EVENT_LOG_PARTITION_CHANGED:
+            is_mount_event = true;
+            break;
+        case VFS_EVENT_SDCARD_UNMOUNTED:
+        case VFS_EVENT_FAT_PARTITION_UNMOUNTED:
+#if defined(CONFIG_LITTLEFS_ENABLED)
+        case VFS_EVENT_LITTEFS_PARTITION_UNMOUNTED:
+#endif
+#if defined(CONFIG_SPIFFS_ENABLED)
+        case VFS_EVENT_SPIFFS_PARTITION_UNMOUNTED:
+#endif
+        case VFS_EVENT_SDCARD_MOUNT_FAILED:
+        case VFS_EVENT_FAT_PARTITION_MOUNT_FAILED:
+#if defined(CONFIG_LITTLEFS_ENABLED)
+        case VFS_EVENT_LITTEFS_PARTITION_MOUNT_FAILED:
+#endif
+#if defined(CONFIG_SPIFFS_ENABLED)
+        case VFS_EVENT_SPIFFS_PARTITION_MOUNT_FAILED:
+#endif
+        case VFS_EVENT_SDCARD_WRITE_FAILED:
+        case VFS_EVENT_FAT_PARTITION_WRITE_FAILED:
+#if defined(CONFIG_LITTLEFS_ENABLED)
+        case VFS_EVENT_LITTEFS_PARTITION_WRITE_FAILED:
+#endif
+#if defined(CONFIG_SPIFFS_ENABLED)
+        case VFS_EVENT_SPIFFS_PARTITION_WRITE_FAILED:
+#endif
+            is_unmount_event = true;
+            break;
+        default:
+            break;
+    }
+
+    const bool partition_available = gps_log_partition_is_available();
+
+    if (partition_available && is_mount_event) {
+        ILOG(TAG, "VFS partition available - refreshing GPS log config and scheduling file reopen");
+        gps_log_config_init();
+
+        // Notify UI/other components that config refreshed and ask VFS worker to close+open
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CONFIG_REFRESHED, NULL, 0, portMAX_DELAY);
+
+        if (gps) {
+            vfs_post_work(VFS_WORK_PARTITION_CHANGED, gps);
+        }
+    } else if (!partition_available && (is_unmount_event || is_mount_event)) {
+        WLOG(TAG, "GPS log partition unavailable - closing log files and notifying UI");
+        if (gps && gps->files_opened) {
+            vfs_post_work(VFS_WORK_CLOSE_FILES, gps);
+        }
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+    }
+}
+
+/**
+ * @brief Register VFS event handler for GPS logging config updates
+ * Call this during GPS initialization to track partition availability
+ */
+void gps_log_register_vfs_handler(void) {
+    esp_event_handler_register(VFS_EVENT, ESP_EVENT_ANY_ID, vfs_event_handler, NULL);
+    DLOG(TAG, "Registered VFS event handler for GPS logging");
+}
+
+/**
+ * @brief Unregister VFS event handler when GPS logging is stopped
+ */
+void gps_log_unregister_vfs_handler(void) {
+    esp_event_handler_unregister(VFS_EVENT, ESP_EVENT_ANY_ID, vfs_event_handler);
+    DLOG(TAG, "Unregistered VFS event handler for GPS logging");
+}
+
+// ============================================================================
 // FILE OPERATIONS - now use async writer
 // ============================================================================
 
@@ -537,29 +622,74 @@ int log_fsync(const struct gps_context_s * context, uint8_t file) {
 
 void log_err(const gps_context_t *context, const char *message) {
     if(!context) return;
-    if (GETBIT(log_config.log_file_bits, SD_TXT) == 1) {
+    if (g_rtc_config.gps.log_enables.bits.log_txt) {
         WRITETXT(message, strlen(message));
     }
 }
 
-// esp_err_t log_config_add_config(gps_log_file_config_t * log, logger_config_t *config) {
-//     if (!config || !log)
-//         return ESP_ERR_INVALID_ARG;
-//     log->config = config;
-//     return ESP_OK;
-// }
+// ============================================================================
+// GPS LOG CONFIG GATING - Check partition availability before logging
+// ============================================================================
 
-gps_log_file_config_t *log_config_init() {
-    FUNC_ENTRY_ARGS(TAG, "partno: %hhu", vfs_ctx.gps_log_part);
-    strbf_t buf;
-    strbf_inits(&buf, log_config.base_path, ESP_VFS_PATH_MAX+1);
-    if(vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point) {
-        struct stat sb = {0};
-        int statok=-1, i = 0;
-        strbf_put_path(&buf, vfs_ctx.parts[vfs_ctx.gps_log_part].mount_point);
+/**
+ * @brief Check if GPS log partition is available and ready for logging
+ * @return true if partition is mounted and has valid mount point, false otherwise
+ */
+bool gps_log_partition_is_available(void) {
+    // Check if partition index is valid
+    if (vfs_ctx.gps_log_part == VFS_PART_MAX) {
+        DLOG(TAG, "GPS log partition not assigned (VFS_PART_MAX)");
+        return false;
     }
+
+    // Check partition bounds
+    if (vfs_ctx.gps_log_part >= VFS_MAX_PARTS) {
+        ELOG(TAG, "GPS log partition index out of bounds: %u >= %u", vfs_ctx.gps_log_part, VFS_MAX_PARTS);
+        return false;
+    }
+
+    // Check if partition is mounted
+    vfs_config_t *part = &vfs_ctx.parts[vfs_ctx.gps_log_part];
+    if (!part->is_mounted) {
+        DLOG(TAG, "GPS log partition not mounted: %u", vfs_ctx.gps_log_part);
+        return false;
+    }
+
+    // Check mount point is valid
+    if (!part->mount_point || strlen(part->mount_point) == 0) {
+        ELOG(TAG, "GPS log partition has invalid mount point");
+        return false;
+    }
+
+    // All checks passed
+    return true;
+}
+
+/**
+ * @brief Initialize GPS log config with VFS partition info
+ * Only proceeds if partition is available; otherwise returns early with warning
+ */
+gps_log_file_config_t *gps_log_config_init(void) {
+    FUNC_ENTRY_ARGS(TAG, "gps_log_part: %hhu (MAX=%u)", vfs_ctx.gps_log_part, VFS_PART_MAX);
+    
+    // GATE: Check if partition is available before initializing path
+    if (!gps_log_partition_is_available()) {
+        WLOG(TAG, "GPS log partition not available - logging disabled until partition found");
+        log_config.base_path[0] = '\0';  // Clear path to prevent invalid operations
+        // Notify UI/other modules early so the user sees missing storage state
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+        return &log_config;
+    }
+
+    // Partition is available - initialize path safely
+    strbf_t buf;
+    strbf_inits(&buf, log_config.base_path, ESP_VFS_PATH_MAX + 1);
+    
+    vfs_config_t *part = &vfs_ctx.parts[vfs_ctx.gps_log_part];
+    strbf_put_path(&buf, part->mount_point);
     strbf_finish(&buf);
-    FUNC_ENTRY_ARGSD(TAG, "log path: %s", &log_config.base_path[0]);
+    
+    FUNC_ENTRY_ARGSD(TAG, "log path initialized: %s", &log_config.base_path[0]);
     return &log_config;
 }
 
@@ -573,15 +703,15 @@ gps_log_file_config_t *log_config_init() {
 //     if (!config)
 //         return ESP_ERR_INVALID_ARG;
 //     if(c_gps_cfg.log_ubx)
-//         SETBIT(*log_file_bits, SD_UBX);
+//         SETBIT(*log_file_bits, sd_log_ubx);
 //     if(c_gps_cfg.log_gpy)
-//         SETBIT(*log_file_bits, SD_GPY);
+//         SETBIT(*log_file_bits, sd_og_gpy);
 //     if(c_gps_cfg.log_sbp)
-//         SETBIT(*log_file_bits, SD_SBP);
+//         SETBIT(*log_file_bits, sd_log_sbp);
 //     if(c_gps_cfg.log_gpx)
-//         SETBIT(*log_file_bits, SD_GPX);
+//         SETBIT(*log_file_bits, sd_log_gpx);
 //     if(c_gps_cfg.log_txt) 
-//         SETBIT(*log_file_bits, SD_TXT);
+//         SETBIT(*log_file_bits, sd_log_txt);
 //     return ESP_OK;
 // }
 
@@ -595,8 +725,16 @@ void open_files(gps_context_t *context) {
     if(!context) return;
     if (context->files_opened)
         return;
+    
+    // GATE: Check if partition is available before attempting to open files
+    if (!gps_log_partition_is_available()) {
+        WLOG(TAG, "Cannot open log files - GPS log partition not available");
+        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+        return;
+    }
+    
+    // Partition is available - safe to proceed with file operations
     gps_log_file_config_t *config = context->log_config;
-    config->log_file_open_bits = 0;
     // logger_config_t *cfg = config->config;
     // save_log_file_bits(context, log_config.log_file_bits);
     // Use direct config access instead of old sconfig API
@@ -609,7 +747,7 @@ void open_files(gps_context_t *context) {
         ++filename;
     strbf_t sb;
     uint8_t open_failed = 0;
-    strbf_inits(&sb, config->filename_NO_EXT, PATH_MAX_CHAR_SIZE);
+    strbf_inits(&sb, config->filename_base, PATH_MAX_CHAR_SIZE);
     // Use direct config access for file_date_time
     uint8_t value = g_rtc_config.gps.file_date_time;
     if (value != 0) {
@@ -655,13 +793,13 @@ void open_files(gps_context_t *context) {
         int filenameSize = sb.cur - sb.start;  // dit is dan 7 + NULL = 8
         strbf_puts(&sb, "000");                 // dit wordt dan /BN280A000.txt
         for (uint16_t i = 0; i < 1000; i++) {
-            config->filename_NO_EXT[filenameSize + 2] = '0' + i % 10;
-            config->filename_NO_EXT[filenameSize + 1] = '0' + ((i / 10) % 10);
-            config->filename_NO_EXT[filenameSize] = '0' + ((i / 100) % 10);
+            config->filename_base[filenameSize + 2] = '0' + i % 10;
+            config->filename_base[filenameSize + 1] = '0' + ((i / 10) % 10);
+            config->filename_base[filenameSize] = '0' + ((i / 100) % 10);
             // create if does not exist, do not open existing, write, sync after
             // write
 #if defined(CONFIG_LOGGER_VFS_ENABLED)
-            if (!s_xfile_exists(config->filename_NO_EXT)) {
+            if (!s_xfile_exists(config->filename_base)) {
                 break;
             }
 #endif
@@ -670,17 +808,18 @@ void open_files(gps_context_t *context) {
         // Refresh selection from runtime config just before open
         gps_log_sync_bits_from_config(config);
     const char * fn = 0;
-    if(!gps_log_file_bits_check(config->log_file_bits)) // at least one file must be opened
-        SETBIT(config->log_file_bits, SD_SBP);
-    for(uint8_t i = 0; i < SD_FD_END; i++) {
+    cfg_gps_log_enables_t *enables = &g_rtc_config.gps.log_enables;
+    if(!gps_log_file_bits_check(enables)) // at least one file must be opened
+        enables->bits.log_sbp = 1;
+    for(uint8_t i = 0; i < sd_log_end; i++) {
         FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
-        if (GETBIT(config->log_file_bits, i)) {
+        if (enables->value & (1 << i)) {
             fn = 
 #if defined(GPS_LOG_ENABLE_GPY)
-            i == SD_GPY ? ".gpy" : 
+            i == sd_log_gpy ? ".gpy" : 
 #endif
-            i == SD_UBX ? ".ubx" : i == SD_SBP ? ".sbp" : i == SD_GPX ? ".gpx" : ".txt";
-            strcpy(config->filenames[i], config->filename_NO_EXT);
+            i == sd_log_ubx ? ".ubx" : i == sd_log_sbp ? ".sbp" : i == sd_log_gpx ? ".gpx" : ".txt";
+            strcpy(config->filenames[i], config->filename_base);
             strcat(config->filenames[i], fn);
             FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
 #if defined(CONFIG_LOGGER_VFS_ENABLED)
@@ -688,17 +827,14 @@ void open_files(gps_context_t *context) {
             if(GET_FD(i)<=0) {
                 open_failed++;
             }
-            else {
-                SETBIT(config->log_file_open_bits, i);
-            }
 #endif
         }
     }
     esp_event_post(GPS_LOG_EVENT, open_failed ? GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED : GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY);
     context->files_opened = 1;
     
-    // Start async writer after files opened
-    if (!open_failed) {
+    // Start async writer after files opened (only if partition is still available)
+    if (!open_failed && gps_log_partition_is_available()) {
         esp_err_t err = async_writer_start();
         if (err != ESP_OK) {
             WLOG(TAG, "Failed to start async writer, using synchronous writes");
@@ -717,13 +853,12 @@ void close_files(gps_context_t *context) {
     async_writer_stop();
     
     gps_log_file_config_t *config = context->log_config;
-    for (int i = 0, j = SD_FD_END; i < j; ++i) {
-        if (GETBIT(config->log_file_open_bits, i) || GET_FD(i) >= 0) {
-            if (i == SD_GPX) {
+    for (int i = 0, j = sd_log_end; i < j; ++i) {
+        if (GET_FD(i) >= 0) {
+            if (i == sd_log_gpx) {
                 log_GPX(context, GPX_END);
             }
             log_close(context, i);
-            config->log_file_open_bits &= (uint8_t)~(1u << i);
             GET_FD(i) = -1;
         }
     }
@@ -740,25 +875,54 @@ void flush_files(const gps_context_t *context) {
     }
     if (g_rtc_config.ubx.output_rate <= 10) {
         if (load_balance == 0) {
-            log_fsync(context, SD_UBX);
+            log_fsync(context, sd_log_ubx);
         }
         if (load_balance == 1) {
-            log_fsync(context, SD_TXT);
+            log_fsync(context, sd_log_txt);
         }
 #ifdef GPS_LOG_ENABLE_GPY
         if (load_balance == 2) {
-            log_fsync(context, SD_GPY);
+            log_fsync(context, sd_og_gpy);
         }
 #endif
         if (load_balance == 3) {
-            log_fsync(context, SD_SBP);
+            log_fsync(context, sd_log_sbp);
         }
         if (load_balance == 4) {
-            log_fsync(context, SD_GPX);
+            log_fsync(context, sd_log_gpx);
             load_balance = -1;
         }
         load_balance++;
     }
+}
+
+esp_err_t log_gps_timeout(const gps_context_t *context, uint32_t time_diff_ms, const char *tag) {
+    logger_buffer_handle_t scratch_handle = {0};
+    if (get_gps_scratch_buffer(&scratch_handle) == ESP_OK) {
+        strbf_t sb;
+        char *datastr = (char*)scratch_handle.buffer;
+        char *buffer = datastr + 200;
+        strbf_inits(&sb, datastr, 200);
+        time_to_char_hms(context->ubx_device->ubx_msg.navPvt.hour, 
+            context->ubx_device->ubx_msg.navPvt.minute, 
+            context->ubx_device->ubx_msg.navPvt.second, 
+            buffer);
+        strbf_puts(&sb, buffer);
+        strbf_putc(&sb, ':');
+        strbf_putl(&sb, log_p_lctx.count_nav_pvt);
+        strbf_putc(&sb, ':');
+        strbf_putl(&sb, context->run_count);
+        strbf_putc(&sb, ':');
+        strbf_putl(&sb, time_diff_ms);
+        strbf_putc(&sb, ':');
+        strbf_puts(&sb, tag);
+        strbf_putc(&sb, '\n');
+        if (GET_FD(sd_log_txt) > 0) {
+            WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
+        }
+        release_gps_buffer(&scratch_handle);
+    }
+    return ESP_OK;
 }
 
 // ============================================================================
@@ -774,48 +938,20 @@ void log_to_file(gps_context_t *context) {
     
     struct nav_pvt_s * nav_pvt = &ubx->ubx_msg.navPvt;
     
-    // Check for lost frames (requires buffer)
-    if ((ubx->ubx_msg.count_nav_pvt > 10) && gps_read_msg_timeout(1)) {
-        logger_buffer_handle_t scratch_handle = {0};
-        
-        if (get_gps_scratch_buffer(&scratch_handle) == ESP_OK) {
-            strbf_t sb;
-            char *datastr = (char*)scratch_handle.buffer;
-            char *buffer = datastr + 200;
-            
-            strbf_inits(&sb, datastr, 200);
-            time_to_char_hms(nav_pvt->hour, nav_pvt->minute, nav_pvt->second, buffer);
-            strbf_puts(&sb, buffer);
-            strbf_putc(&sb, ':');
-            strbf_putl(&sb, ubx->ubx_msg.count_nav_pvt);
-            strbf_putc(&sb, ':');
-            strbf_puts(&sb, "Lost ubx frame!\n");
-            if (GET_FD(SD_TXT) > 0) {
-                WRITETXT(strbf_finish(&sb), sb.cur - sb.start);
-            }
-            ++context->lost_frames;
-            WLOG(TAG, "Lost ubx frame frame: %lu, time: %s", ubx->ubx_msg.count_nav_pvt, buffer);
-            esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_FRAME_LOST, NULL, 0, portMAX_DELAY);
-            
-            release_gps_buffer(&scratch_handle);
-        }
-        return;  // Don't log data on frame timeout
-    }
-    
     // Log data in all enabled formats (consolidated bit checks)
-    uint8_t log_bits = context->log_config->log_file_bits;
-    if (GETBIT(log_bits, SD_UBX)) {
+    cfg_gps_log_enables_t enables = g_rtc_config.gps.log_enables;
+    if (enables.bits.log_ubx) {
         log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
     }
 #ifdef GPS_LOG_ENABLE_GPY
-    if (GETBIT(log_bits, SD_GPY)) {
+    if (enables.bits.log_gpy) {
         log_GPY(context);
     }
 #endif
-    if (GETBIT(log_bits, SD_SBP)) {
+    if (enables.bits.log_sbp) {
         log_SBP(context);
     }
-    if (GETBIT(log_bits, SD_GPX)) {
+    if (enables.bits.log_gpx) {
         log_GPX(context, GPX_FRAME);
     }
 }
@@ -1154,7 +1290,7 @@ static void gps_metrics_result_max(void) {
 
 void gps_speed_metrics_save_session(void) {
     FUNC_ENTRY(TAG);
-    if (GETBIT(gps->log_config->log_file_bits, SD_TXT) && gps->log_config->filefds[SD_TXT] > 0) {
+    if (g_rtc_config.gps.log_enables.bits.log_txt && gps->log_config->filefds[sd_log_txt] > 0) {
         session_info(gps, &gps->Ublox);
         gps_metrics_result_max();
         for(uint8_t i = 0, j = gps->num_speed_metrics; i < j; i++) {

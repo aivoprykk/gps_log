@@ -23,17 +23,21 @@ void printFile(const char *filename);
 struct gps_context_s;
 extern struct gps_context_s * gps;
 
-#define NOGPY (log_get_fd((context), SD_GPY)==-1)
-#define NOGPX (log_get_fd((context), SD_GPX)==-1)
-#define NOSBP (log_get_fd((context), SD_SBP)==-1)
-#define NOTXT (log_get_fd((context), SD_TXT)==-1)
+#define NOGPX (log_get_fd((context), sd_log_gpx)==-1)
+#if defined (CONFIG_GPS_LOG_GPY)
+#define NOGPY (log_get_fd((context), sd_log_gpy)==-1)
+#endif
+#define NOUBX (log_get_fd((context), sd_log_ubx)==-1)
+#define NOSBP (log_get_fd((context), sd_log_sbp)==-1)
+#define NOTXT (log_get_fd((context), sd_log_txt)==-1)
 
-#define WRITEGPX(msg, len) log_write((gps), SD_GPX, (msg), (len))
-#define WRITEGPY(msg, len) log_write((gps), SD_GPY, (msg), (len))
-#define WRITEUBX(msg, len) log_write((gps), SD_UBX, (msg), (len))
-#define WRITESBP(msg, len) log_write((gps), SD_SBP, (msg), (len))
-#define WRITETXT(msg, len) log_write((gps), SD_TXT, (msg), (len))
-
+#define WRITEGPX(msg, len) log_write((gps), sd_log_gpx, (msg), (len))
+#if defined (CONFIG_GPS_LOG_GPY)
+#define WRITEGPY(msg, len) log_write((gps), sd_log_gpy, (msg), (len))
+#endif
+#define WRITEUBX(msg, len) log_write((gps), sd_log_ubx, (msg), (len))
+#define WRITESBP(msg, len) log_write((gps), sd_log_sbp, (msg), (len))
+#define WRITETXT(msg, len) log_write((gps), sd_log_txt, (msg), (len))
 #define GET_FD(f) (gps->log_config->filefds[f])
 
 inline int log_get_fd(const struct gps_context_s * context, uint8_t file) {
@@ -106,6 +110,7 @@ typedef struct gps_p_context_s {
     float heading_mean;
     uint32_t standstill_start_millis;
     SemaphoreHandle_t xMutex;
+    uint32_t count_nav_pvt;
 } gps_p_context_t;
 
 #define AA .buf_gspeed = {0}, .buf_gspeed_size = BUFFER_SIZE
@@ -144,12 +149,20 @@ typedef struct gps_p_context_s {
     .alfa_p2 = {0,0}, \
     .standstill_start_millis = 0, \
     .xMutex = NULL, \
+    .count_nav_pvt = 0 \
 }
 
 extern gps_p_context_t log_p_lctx;
 
-inline bool gps_log_file_bits_check(uint8_t log_file_bits) {
-    return (GETBIT(log_file_bits, SD_UBX) || GETBIT(log_file_bits, SD_SBP) || GETBIT(log_file_bits, SD_GPX));
+inline bool gps_log_file_bits_check(cfg_gps_log_enables_t *enables) {
+    return (
+            enables->bits.log_ubx 
+            || enables->bits.log_sbp 
+#if defined (GPS_LOG_ENABLE_GPY)
+            || enables->bits.log_gpy
+#endif
+            || enables->bits.log_gpx
+        );
 }
 
 extern float get_spd(float b);
@@ -214,6 +227,7 @@ esp_err_t gps_speed_by_alpha_printf(const struct gps_speed_alfa_s *me);
 
 bool check_and_alloc_buffer(void **buf, size_t required_count, size_t elem_size, uint16_t *current_count, uint32_t caps);
 void unalloc_buffer(void **buf);
+esp_err_t log_gps_timeout(const gps_context_t *context, uint32_t period_ms, const char *tag);
 
 #ifdef __cplusplus
 }
