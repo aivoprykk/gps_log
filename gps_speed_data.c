@@ -1,9 +1,9 @@
 #include "log_private.h"
 #include "gps_speed_data.h"
-#include "ubx.h"
+// #include "ubx.h"
 #include <math.h>
 #include <stdarg.h>
-#include "logger_buffer_pool.h"
+// #include "logger_buffer_pool.h"
 
 static const char *TAG = "gps_speed";
 
@@ -251,9 +251,9 @@ gps_speed_op_t speed_ops = {
 };
 
 esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
-    ILOG(TAG, "[%s] idx: %d type: %d window: %d, max_metrics: %hu", __func__, pos, cfg->type, cfg->window, gps->num_speed_metrics);
+    ILOG(TAG, "[%s] idx: %d type: %d window: %d, max_metrics: %" PRIu16 "", __func__, pos, cfg->type, cfg->window, gps->num_speed_metrics);
     if (!gps->speed_metrics || pos < 0 || pos >= gps->num_speed_metrics) {
-        ELOG(TAG, "[%s] Invalid speed metrics or position %d (max: %hu)", __func__, pos, gps->num_speed_metrics);
+        ELOG(TAG, "[%s] Invalid speed metrics or position %d (max: %" PRIu16 ")", __func__, pos, gps->num_speed_metrics);
         return ESP_ERR_INVALID_ARG;
     }
     
@@ -341,7 +341,7 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
 }
 
 void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets) {
-    FUNC_ENTRY_ARGS(TAG, "num_sets: %zu, current: %hu", num_sets, gps->num_speed_metrics);
+    FUNC_ENTRY_ARGS(TAG, "num_sets: %zu, current: %" PRIu16 "", num_sets, gps->num_speed_metrics);
     if(num_sets > gps->num_speed_metrics){
         if (!check_and_alloc_buffer((void **)&gps->speed_metrics, num_sets, sizeof(gps_speed_metrics_desc_t), &gps->num_speed_metrics, MALLOC_CAP_DMA)) {
             ELOG(TAG, "[%s] Failed to allocate speed metrics array for %zu sets", __func__, num_sets);
@@ -353,7 +353,7 @@ void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets
             return;
         }
         if (gps->speed_metrics) {
-        ILOG(TAG, "[%s] Allocated %hu speed metrics, initializing %zu", __func__, gps->num_speed_metrics, num_sets);
+        ILOG(TAG, "[%s] Allocated %" PRIu16 " speed metrics, initializing %zu", __func__, gps->num_speed_metrics, num_sets);
             memset(gps->speed_metrics, 0, num_sets * sizeof(gps_speed_metrics_desc_t));
             for (int i = 0; i < num_sets; ++i) {
                 esp_err_t err = gps_speed_metrics_add(&cfg[i], i);
@@ -366,7 +366,7 @@ void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets
             ELOG(TAG, "[%s] Speed metrics array is null after allocation", __func__);
         }
     } else {
-        ILOG(TAG, "[%s] Speed metrics already initialized (%hu >= %zu)", __func__, gps->num_speed_metrics, num_sets);
+        ILOG(TAG, "[%s] Speed metrics already initialized (%" PRIu16 " >= %zu)", __func__, gps->num_speed_metrics, num_sets);
     }
 }
 
@@ -375,7 +375,7 @@ void gps_speed_metrics_init() {
     gps_speed_metrics_check(&initial_speed_metrics_sets[0], lengthof(initial_speed_metrics_sets));
     
     // Validate all metrics are properly initialized
-    ILOG(TAG, "[%s] Validating %d speed metrics initialization...", __func__, lengthof(initial_speed_metrics_sets));
+    ILOG(TAG, "[%s] Validating %zu speed metrics initialization...", __func__, lengthof(initial_speed_metrics_sets));
     bool initialization_failed = false;
     
     for (int i = 0; i < lengthof(initial_speed_metrics_sets); i++) {
@@ -466,7 +466,7 @@ void gps_speed_metrics_free(void) {
 }
 
 void gps_speed_metrics_update(void) {
-    FUNC_ENTRY_ARGSD(TAG, "sets: %hu", gps->num_speed_metrics);
+    FUNC_ENTRY_ARGSD(TAG, "sets: %" PRIu16 "", gps->num_speed_metrics);
     if (!gps->speed_metrics || gps->num_speed_metrics == 0) {
         return;
     }
@@ -582,7 +582,7 @@ static esp_err_t gps_speed_printf(const gps_speed_t * me) {
     printf("max_speed: %.02f, ", me->max_speed);
     // printf("avg_5runs: %.02f\n", me->avg_5runs);
     for (i = 0; i < j; i++) {
-        printf(" %hhu ", i); gps_run_printf(&me->runs[i]);
+        printf(" %" PRIu8 " ", i); gps_run_printf(&me->runs[i]);
     }
     gps_display_printf(&me->display);
     printf(" } ==\n");
@@ -592,7 +592,7 @@ static esp_err_t gps_speed_printf(const gps_speed_t * me) {
 
 
 static void record_last_run(gps_speed_t * speed, uint16_t actual_run) {
-    // printf("[%s] %.01f %hu %hu\n", __func__, speed->max_speed, actual_run, speed->display.nr_display_last_run);
+    // printf("[%s] %.01f %" PRIu16 " %" PRIu16 "\n", __func__, speed->max_speed, actual_run, speed->display.nr_display_last_run);
     if ((actual_run != speed->display.nr_display_last_run) && (speed->max_speed > SPEED_THRESHOLD_MIN)) { // 3m/s in mm/s
         speed->display.nr_display_last_run = actual_run;
         speed->display.display_last_run_max_speed = 0;
@@ -676,7 +676,7 @@ static bool store_run_max_speed(gps_speed_t * speed, uint16_t run_count) {
 
 #if defined(GPS_STATS)
 static void gps_run_printf(const struct gps_run_s * run) {
-    printf("Run: {time: %02d:%02d.%02d, avg_speed: %.02f, nr: %hu}\n", run->time.hour, run->time.minute, run->time.second, run->avg_speed, run->nr);
+    printf("Run: {time: %02d:%02d.%02d, avg_speed: %.02f, nr: %" PRIu16 "}\n", run->time.hour, run->time.minute, run->time.second, run->avg_speed, run->nr);
 }
 #endif
 
@@ -684,19 +684,19 @@ static void gps_run_printf(const struct gps_run_s * run) {
 static esp_err_t gps_speed_by_dist_printf(const struct gps_speed_by_dist_s *me) {
     uint8_t i, j=NUM_OF_SPD_ARRAY_SIZE;
     printf("=== speed_by_dist: {\n");
-    printf("m_set_dist: %hu, ", me->distance_window);
-    printf("m_dist: %ld, ", me->distance);
-    printf("m_sample: %lu, ", me->m_sample);
-    printf("m_index: %ld\n", me->m_index);
+    printf("m_set_dist: %" PRIu16 ", ", me->distance_window);
+    printf("m_dist: %" PRId32 ", ", me->distance);
+    printf("m_sample: %" PRIu32 ", ", me->m_sample);
+    printf("m_index: %" PRId32 "\n", me->m_index);
     gps_speed_printf(&me->speed);
     printf("dist: ");
-    for (i = 0; i < j; i++) printf("%lu ", me->dist[i]);
+    for (i = 0; i < j; i++) printf("%" PRIu32 " ", me->dist[i]);
     printf("\n");
     printf("nr_samples: ");
-    for (i = 0; i < j; i++) printf("%lu ", me->nr_samples[i]);
+    for (i = 0; i < j; i++) printf("%" PRIu32 " ", me->nr_samples[i]);
     printf("\n");
     printf("message_nr: ");
-    for (i = 0; i < j; i++) printf("%lu ", me->message_nr[i]);
+    for (i = 0; i < j; i++) printf("%" PRIu32 " ", me->message_nr[i]);
     printf("\n");
     printf("} === \n");
     return ESP_OK;
@@ -791,7 +791,7 @@ float update_speed_by_distance(struct gps_speed_by_dist_s *me) {
         me->m_index = log_p_lctx.index_gspeed;
     }
     move_distance_window(me);
-    // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(me->distance, g_rtc_config.ubx.output_rate), me->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
+    // printf("[%s] dist: %.1f, set: %" PRIu16 " spd: %.1f, max: %0.1f\n", __func__, get_distance_m(me->distance, g_rtc_config.ubx.output_rate), me->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
     if(store_speed_by_dist(me)) {  // store the speed if it is greater than 0
         store_dist_data(me);  // store the data in the speed struct
     }
@@ -815,7 +815,7 @@ struct gps_speed_by_time_s *init_gps_speed_by_time(struct gps_speed_by_time_s *m
 #if defined(GPS_STATS) && defined(GPS_TRACE_MSG_SPEED_BY_TIME)
 #if defined(SPEED_BAR_SETUP)
 static void gps_speed_bar_data_printf(const struct gps_speed_bar_s *bar) {
-    printf("bar_data: {bar_count: %hu, run_speeds: ", bar->bar_count);
+    printf("bar_data: {bar_count: %" PRIu16 ", run_speeds: ", bar->bar_count);
     for (uint8_t i = 0; i < NR_OF_BAR; i++) {
         printf("%.02f ", bar->run_speed[i]);
     }
@@ -824,24 +824,24 @@ static void gps_speed_bar_data_printf(const struct gps_speed_bar_s *bar) {
 #endif
 static esp_err_t gps_speed_by_time_printf(const struct gps_speed_by_time_s *me) {
     printf("=== gps_speed_by_time: {\n");
-    printf("time_window: %hu, ", me->time_window);
+    printf("time_window: %" PRIu16 ", ", me->time_window);
     gps_speed_printf(&me->speed);
-    // printf("avg_s_sum: %ld\n", me->avg_s_sum);
+    // printf("avg_s_sum: %" PRId32 "\n", me->avg_s_sum);
     // printf("Mean_cno: ");
     // for (i = 0; i < j; i++)
-    //     printf("%hu ", me->Mean_cno[i]);
+    //     printf("%" PRIu16 " ", me->Mean_cno[i]);
     // printf("\n");
     // printf("Max_cno: ");
     // for (i = 0; i < j; i++)
-    // printf("%hhu ", me->Max_cno[i]);
+    // printf("%" PRIu8 " ", me->Max_cno[i]);
     // printf("\n");
     // printf("Min_cno: ");
     // for (i = 0; i < j; i++)
-    //     printf("%hhu ", me->Min_cno[i]);
+    //     printf("%" PRIu8 " ", me->Min_cno[i]);
     // printf("\n");
     // printf("Mean_numSat: ");
     // for (i = 0; i < j; i++)
-    //     printf("%hhu ", me->Mean_numSat[i]);
+    //     printf("%" PRIu8 " ", me->Mean_numSat[i]);
     // printf("\n");
     printf("} === \n");
     return ESP_OK;
@@ -901,7 +901,7 @@ static inline void store_and_reset_time_data_after_run(struct gps_speed_by_time_
 }
 
 static inline bool store_avg_speed_by_time_optimized(struct gps_speed_by_time_s *me, uint32_t time_window_delta, uint8_t sample_rate) {
-    // printf("[%s] %lu\n", __func__, time_window_delta);
+    // printf("[%s] %" PRIu32 "\n", __func__, time_window_delta);
     bool window_reached = false;
     const uint32_t current_speed = log_p_lctx.buf_gspeed[buf_index(log_p_lctx.index_gspeed)];
     
@@ -963,17 +963,17 @@ void reset_alfa_stats(struct gps_speed_alfa_s *me) {
 static esp_err_t gps_speed_by_alpha_printf(const struct gps_speed_alfa_s *me) {
     uint8_t i, j=NUM_OF_SPD_ARRAY_SIZE;
     printf("=== speed_by_alfa: {\n");
-    printf("set_alfa_dist: %hu, ", me->distance_window);
+    printf("set_alfa_dist: %" PRIu16 ", ", me->distance_window);
     printf("straight_dist_square: %.03f\n", me->straight_dist_square);
     gps_speed_printf(&me->speed);
     printf("real_distance: ");
-    for (i = 0; i < j; i++) printf("%ld ", me->real_distance[i]);
+    for (i = 0; i < j; i++) printf("%" PRId32 " ", me->real_distance[i]);
     printf("\n");
     printf("alfa_distance: ");
-    for (i = 0; i < j; i++) printf("%lu ", me->alfa_distance[i]);
+    for (i = 0; i < j; i++) printf("%" PRIu32 " ", me->alfa_distance[i]);
     printf("\n");
     printf("message_nr: ");
-    for (i = 0; i < j; i++) printf("%lu ", me->message_nr[i]);
+    for (i = 0; i < j; i++) printf("%" PRIu32 " ", me->message_nr[i]);
     printf("\n");
     printf("} === \n");
     return ESP_OK;
@@ -1188,12 +1188,12 @@ float update_speed_by_alfa(struct gps_speed_by_dist_s *m) {
 #endif
             me->speed.cur_speed = m->speed.cur_speed; // current speed in mm/s
             if (m->m_sample >= log_p_lctx.alfa_buf_size) {
-                printf("Warning: m_sample %ld >= al_buf_size %hd, setting speed to 0\n", m->m_sample, log_p_lctx.alfa_buf_size);
+                printf("Warning: m_sample %"PRId32" >= al_buf_size %"PRIu16", setting speed to 0\n", m->m_sample, log_p_lctx.alfa_buf_size);
                 me->speed.cur_speed = 0;  // avoid overflow at low speeds
             }
             store_alfa_data(me, m->distance);
         }
-        // printf("[%s] dist: %.1f, set: %hu spd: %.1f, max: %0.1f\n", __func__, get_distance_m(m->distance, g_rtc_config.ubx.output_rate), me->base->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
+        // printf("[%s] dist: %.1f, set: %" PRIu16 " spd: %.1f, max: %0.1f\n", __func__, get_distance_m(m->distance, g_rtc_config.ubx.output_rate), me->base->distance_window, me->speed.runs[0].avg_speed, me->speed.max_speed);
     // }
     // if((alfa_speed_max>0.0f)&(straight_dist_square>(alfa_circle_square*1.4))){ //alfa max only resets to 0 if 500 m after the jibe, straight distance after the jibe
     if (gps->run_count != me->speed.nr_prev_run) {
@@ -1271,12 +1271,12 @@ uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S
     if (log_p_lctx.delay_count_before_run == time_delay_samples) {
         ++context->run_count;
 // #if (C_LOG_LEVEL < 2)
-//         WLOG(TAG, "=== Run finished, count changed to %hu ===", context->run_count);
+//         WLOG(TAG, "=== Run finished, count changed to %" PRIu16 " ===", context->run_count);
 // #endif
     }
 // #if (C_LOG_LEVEL < 2)
-//     printf("delay_count_before_run: %lu, start_cond: %u ...\n", log_p_lctx.delay_count_before_run, time_delay_samples);
-//     printf("run_count: %hu, context->alfa_count: %hu, log_p_lctx.straight_course: %d\n", context->run_count, context->alfa_count, log_p_lctx.straight_course);
+//     printf("delay_count_before_run: %" PRIu32 ", start_cond: %u ...\n", log_p_lctx.delay_count_before_run, time_delay_samples);
+//     printf("run_count: %" PRIu16 ", context->alfa_count: %" PRIu16 ", log_p_lctx.straight_course: %d\n", context->run_count, context->alfa_count, log_p_lctx.straight_course);
 // #endif
     return context->run_count;
 }
@@ -1322,7 +1322,7 @@ float alfa_indicator(float actual_heading) {
     gps->alfa_exit = point_to_line_distance_optimized(&log_p_lctx.alfa_p1, &cur, &prev); // turn-250m point distance to line {cur,cur-2sec}
     gps->alfa_window = point_to_line_distance_optimized(&cur, &log_p_lctx.alfa_p1, &log_p_lctx.alfa_p2); // cur point distance to line {turn-m250,turn-m100}
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM)
-    printf("[%s] run: %hu, exit: %.1f, window: %.1f, atdist: %.1f\n", __func__, 
+    printf("[%s] run: %" PRIu16 ", exit: %.1f, window: %.1f, atdist: %.1f\n", __func__, 
             gps->run_count, gps->alfa_exit, 
             gps->alfa_window, 
             (float)(MM_TO_M(gps->Ublox.run_distance_after_turn)));

@@ -14,7 +14,7 @@
 #include <esp_mac.h>
 
 #include "gps_log.h"
-#include "esp_log.h"
+// #include "esp_log.h"
 #include "logger_buffer_pool.h"
 
 #include "strbf.h"
@@ -29,7 +29,7 @@
 #include "vfs_events.h"
 #include "context.h"
 
-#include "freertos/FreeRTOS.h"
+// #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
@@ -167,19 +167,19 @@ static esp_err_t async_writer_flush_buffer(uint8_t file_index) {
 
     int fd = GET_FD(file_index);
     if (fd < 0) {
-        ELOG(TAG, "Invalid FD for file %u", file_index);
+        ELOG(TAG, "Invalid FD for file %"PRIu8, file_index);
         return ESP_ERR_INVALID_STATE;
     }
 
     // Perform synchronous write (we're in dedicated writer task)
     ssize_t written = write(fd, fb->buffer, fb->buffer_used);
     if (written != fb->buffer_used) {
-        ELOG(TAG, "Flush failed for file %u: wrote %d of %u bytes (%s)", 
-             file_index, (int)written, fb->buffer_used, strerror(errno));
+        ELOG(TAG, "Flush failed for file %"PRIu8": wrote %zu of %zu bytes (%s)", 
+             file_index, written, fb->buffer_used, strerror(errno));
         return ESP_FAIL;
     }
 
-    DLOG(TAG, "Flushed %u bytes to file %u", fb->buffer_used, file_index);
+    DLOG(TAG, "Flushed %zu bytes to file %"PRIu8, fb->buffer_used, file_index);
     fb->buffer_used = 0;
     fb->last_write_tick = xTaskGetTickCount();
     
@@ -199,12 +199,12 @@ static esp_err_t async_writer_write_buffered(uint8_t file_index, const uint8_t *
     if (!fb->buffer) {
         fb->buffer = (uint8_t *)malloc(ASYNC_WRITER_BUFFER_SIZE);
         if (!fb->buffer) {
-            ELOG(TAG, "Failed to allocate %uB buffer for file %u", ASYNC_WRITER_BUFFER_SIZE, file_index);
+            ELOG(TAG, "Failed to allocate %dB buffer for file %"PRIu8, ASYNC_WRITER_BUFFER_SIZE, file_index);
             return ESP_ERR_NO_MEM;
         }
         fb->buffer_used = 0;
         fb->last_write_tick = xTaskGetTickCount();
-        ILOG(TAG, "Allocated %uB write buffer for file %u", ASYNC_WRITER_BUFFER_SIZE, file_index);
+        ILOG(TAG, "Allocated %dB write buffer for file %"PRIu8, ASYNC_WRITER_BUFFER_SIZE, file_index);
     }
 
     size_t bytes_written = 0;
@@ -275,7 +275,7 @@ static void async_writer_task(void *arg) {
                 if (fb->buffer && fb->buffer_used > 0) {
                     // Flush if data older than timeout threshold
                     if ((now - fb->last_write_tick) >= pdMS_TO_TICKS(ASYNC_WRITER_FLUSH_TIMEOUT_MS)) {
-                        DLOG(TAG, "Timeout flush for file %d (%u bytes)", i, fb->buffer_used);
+                        DLOG(TAG, "Timeout flush for file %d (%zu bytes)", i, fb->buffer_used);
                         async_writer_flush_buffer(i);
                     }
                 }
@@ -334,7 +334,7 @@ esp_err_t async_writer_start(void) {
         return ESP_FAIL;
     }
 
-    ILOG(TAG, "Async writer started (%uB sector-aligned buffering, %ums flush timeout)", 
+    ILOG(TAG, "Async writer started (%dB sector-aligned buffering, %dms flush timeout)", 
          ASYNC_WRITER_BUFFER_SIZE, ASYNC_WRITER_FLUSH_TIMEOUT_MS);
     return ESP_OK;
 }
@@ -398,7 +398,7 @@ static esp_err_t queue_async_write(uint8_t file_index, const uint8_t *data, size
     // Non-blocking send (0 timeout)
     if (xQueueSend(async_writer_queue, &req, 0) != pdTRUE) {
         free(data_copy);
-        ELOG(TAG, "Async writer queue full (dropped %u bytes for file %u)", len, file_index);
+        ELOG(TAG, "Async writer queue full (dropped %zu bytes for file %"PRIu8")", len, file_index);
         return ESP_ERR_TIMEOUT;
     }
 
@@ -644,14 +644,14 @@ bool gps_log_partition_is_available(void) {
 
     // Check partition bounds
     if (vfs_ctx.gps_log_part >= VFS_MAX_PARTS) {
-        ELOG(TAG, "GPS log partition index out of bounds: %u >= %u", vfs_ctx.gps_log_part, VFS_MAX_PARTS);
+        ELOG(TAG, "GPS log partition index out of bounds: %" PRIu8 " >= %" PRIu8, vfs_ctx.gps_log_part, VFS_MAX_PARTS);
         return false;
     }
 
     // Check if partition is mounted
     vfs_config_t *part = &vfs_ctx.parts[vfs_ctx.gps_log_part];
     if (!part->is_mounted) {
-        DLOG(TAG, "GPS log partition not mounted: %u", vfs_ctx.gps_log_part);
+        DLOG(TAG, "GPS log partition not mounted: %" PRIu8, vfs_ctx.gps_log_part);
         return false;
     }
 
@@ -670,7 +670,7 @@ bool gps_log_partition_is_available(void) {
  * Only proceeds if partition is available; otherwise returns early with warning
  */
 gps_log_file_config_t *gps_log_config_init(void) {
-    FUNC_ENTRY_ARGS(TAG, "gps_log_part: %hhu (MAX=%u)", vfs_ctx.gps_log_part, VFS_PART_MAX);
+    FUNC_ENTRY_ARGS(TAG, "gps_log_part: %" PRIu8 " (MAX=%" PRIu8 ")", vfs_ctx.gps_log_part, VFS_PART_MAX);
     
     // GATE: Check if partition is available before initializing path
     if (!gps_log_partition_is_available()) {
@@ -771,7 +771,7 @@ void open_files(gps_context_t *context) {
         if (tms.tm_min < 10)
             strbf_putc(&tsb, '0');
         strbf_putl(&tsb, tms.tm_min);
-        // sprintf(timestamp, "%u%02u%02u%02u%02u", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min);
+        // sprintf(timestamp, "%zu%02u%02u%02u%02u", (tms.tm_year) + 1900, (tms.tm_mon) + 1, tms.tm_mday, tms.tm_hour, tms.tm_min);
         if (value == 1) {
             strbf_puts(&sb, filename);  // copy filename from config
             strbf_putc(&sb, '_');
@@ -1175,7 +1175,7 @@ static void gps_metrics_result_time(struct gps_speed_by_time_s *me) {
         strbf_puts(&sb, unit);
         strbf_putl(&sb, me->time_window);
         if (g_rtc_config.ubx.msgout_sat) {
-            strbf_sprintf(&sb, " CNO Max: %u Avg: %u Min: %u nr Sat: %u", run->data.time.Max_cno, run->data.time.Mean_cno, run->data.time.Min_cno, run->data.time.Mean_numSat);
+            strbf_sprintf(&sb, " CNO Max: %zu Avg: %zu Min: %zu nr Sat: %zu", run->data.time.Max_cno, run->data.time.Mean_cno, run->data.time.Min_cno, run->data.time.Mean_numSat);
         }
         strbf_puts(&sb, "\n");
         WRITETXT(message, sb.cur - sb.start);

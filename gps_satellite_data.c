@@ -7,15 +7,15 @@ static const char * TAG = "gps_satellite";
 #if defined(GPS_TRACE_MSG_SAT)
 static esp_err_t gps_sat_info_printf(const struct gps_sat_info_s *me) {
     printf("GPS_SAT_info:{ ");
-    printf("mean_cno: %hu, ", me->mean_cno);
-    printf("min_cno: %hhu, ", me->min_cno);
-    printf("max_cno: %hhu, ", me->max_cno);
-    printf("nr_sats: %hhu, ", me->nr_sats);
-    printf("index_sat_info: %lu, ", me->index_sat_info);
-    printf("Mean_mean_cno: %hu, ", me->sat_info.Mean_mean_cno);
+    printf("mean_cno: %" PRIu16 ", ", me->mean_cno);
+    printf("min_cno: %" PRIu8 ", ", me->min_cno);
+    printf("max_cno: %" PRIu8 ", ", me->max_cno);
+    printf("nr_sats: %" PRIu8 ", ", me->nr_sats);
+    printf("index_sat_info: %" PRIu32 ", ", me->index_sat_info);
+    printf("Mean_mean_cno: %" PRIu16 ", ", me->sat_info.Mean_mean_cno);
     printf("Mean_max_cno: %"PRIu8", ", me->sat_info.Mean_max_cno);
-    printf("Mean_min_cno: %hhu, ", me->sat_info.Mean_min_cno);
-    printf("Mean_numSV: %hhu, ", me->sat_info.Mean_numSV);
+    printf("Mean_min_cno: %" PRIu8 ", ", me->sat_info.Mean_min_cno);
+    printf("Mean_numSV: %" PRIu8 ", ", me->sat_info.Mean_numSV);
     printf("}\n");
     return ESP_OK;
 }

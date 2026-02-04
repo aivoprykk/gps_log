@@ -245,7 +245,7 @@ uint8_t gps_cfg_get_pos(const char *str) {
 }
 
 uint8_t gps_cnf_set_item(uint8_t pos, void * el, uint8_t force) {
-    FUNC_ENTRY_ARGS(TAG, "pos: %hhu", pos);
+    FUNC_ENTRY_ARGS(TAG, "pos: %" PRIu8 "", pos);
     if (!el) {
         return 254;
     }
@@ -567,7 +567,7 @@ static uint8_t add_from_list(strbf_t *lsb, const char * const *list, size_t len)
 }
 
 uint8_t gps_cnf_get_item(uint8_t pos, strbf_t * lsb, uint8_t mode) {
-    FUNC_ENTRY_ARGS(TAG,"pos: %hhu", pos);
+    FUNC_ENTRY_ARGS(TAG,"pos: %" PRIu8 "", pos);
     if (!lsb) return 254;
     if(pos < CFG_GPS_ITEM_BASE || pos >= CFG_GPS_ITEM_BASE + gps_user_cfg_item_count) {
         return 255;
