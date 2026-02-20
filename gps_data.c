@@ -8,16 +8,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
-// #include <math.h>
 
-#ifdef CONFIG_LOGGER_VFS_ENABLED
-// #include "vfs.h"
-#endif
 #include "gps_log_file.h"
 #include "logger_common.h"
-// #include "numstr.h"
 #include "gps_log_events.h"
-#include "gps_user_cfg.h"
 #include "ubx.h"
 
 static const char *TAG = "gps_data";
@@ -33,26 +27,96 @@ void unalloc_buffer(void **buf) {
 	}
 }
 
-// Universal buffer check and allocation function
+// Helper function to calculate safe allocation size based on available heap
+static size_t calculate_safe_allocation_size(size_t requested_bytes, uint32_t caps,
+                                            size_t min_bytes) {
+    const float HEAP_SAFETY_FACTOR = 0.8f;
+
+    // Try internal RAM first, then fallback to requested caps per AGENTS.md
+    size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    if (largest_block == 0) {
+        largest_block = heap_caps_get_largest_free_block(caps);
+    }
+
+    // Check SPIRAM if available
+    #ifdef CONFIG_ESP32_SPIRAM_SUPPORT
+    size_t spiram_block = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    if (spiram_block > largest_block) {
+        largest_block = spiram_block;
+    }
+    #endif
+
+    size_t max_safe_bytes = (size_t)(largest_block * HEAP_SAFETY_FACTOR);
+
+    // Ensure minimum allocation
+    if (max_safe_bytes < min_bytes) {
+        return min_bytes; // Will likely fail, but try minimum
+    }
+
+    // For small allocations (< 2KB), don't reduce to avoid fragmentation
+    if (requested_bytes <= 2048) {
+        return requested_bytes;
+    }
+
+    // For large allocations, cap to safe size
+    return (requested_bytes <= max_safe_bytes) ? requested_bytes : max_safe_bytes;
+}
+
+// Universal buffer check and allocation function with adaptive sizing
 bool check_and_alloc_buffer(void **buf, size_t required_count, size_t elem_size,
 							uint16_t *current_count, uint32_t caps) {
 	FUNC_ENTRY_ARGS(TAG, "required_count: %zu, elem_size: %zu", required_count,
 					elem_size);
 	if (!buf)
 		return false;
-	if (*buf && current_count && *current_count >= required_count)
+	// Reuse existing buffer if it's large enough (avoids fragmentation on rate drops)
+	if (*buf && current_count && *current_count >= required_count) {
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+		WLOG(TAG, "[%s] Buffer reused: current=%" PRIu16 " >= required=%zu",
+			 __func__, *current_count, required_count);
+#endif
 		return true;
+	}
+	// Need to allocate: calculate safe size based on heap availability
+	// Round total byte size to 8-byte alignment
+	size_t alloc_size = ROUND_UP_TO_8(required_count * elem_size);
+	size_t safe_alloc_size = calculate_safe_allocation_size(alloc_size, caps, elem_size);
+
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+	size_t free_heap = heap_caps_get_free_size(caps);
+	size_t largest_block = heap_caps_get_largest_free_block(caps);
+	WLOG(TAG, "[%s] Allocating %zu bytes (safe: %zu, heap: free=%zu largest=%zu)",
+		 __func__, alloc_size, safe_alloc_size, free_heap, largest_block);
+#endif
+
 	unalloc_buffer(buf);
-	required_count = ROUND_UP_TO_8(required_count);
-	*buf = heap_caps_malloc(required_count * elem_size, caps);
+
+	// Adjust required_count if allocation was reduced
+	size_t safe_required_count = safe_alloc_size / elem_size;
+	if (safe_required_count < required_count) {
+		required_count = safe_required_count;
+		// Recalculate allocation size with proper rounding after reduction
+		alloc_size = ROUND_UP_TO_8(required_count * elem_size);
+		// Recalculate safe_required_count based on rounded allocation
+		required_count = alloc_size / elem_size;
+	} else {
+		// Use the rounded allocation size
+		required_count = alloc_size / elem_size;
+	}
+
+	*buf = heap_caps_malloc(alloc_size, caps);
 	if (*buf && current_count) {
 		*current_count = required_count;
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
-		WLOG(TAG, "[%s] Allocated buffer of size %zu", __func__,
-			 required_count * elem_size);
+		WLOG(TAG, "[%s] Allocated buffer of size %zu, elements: %" PRIu16, __func__, alloc_size, *current_count);
 #endif
 		return true;
 	} else {
+#if (C_LOG_LEVEL <= LOG_INFO_NUM)
+		ELOG(TAG, "[%s] ALLOC FAILED: size=%zu free=%zu largest=%zu",
+			 __func__, alloc_size, heap_caps_get_free_size(caps),
+			 heap_caps_get_largest_free_block(caps));
+#endif
 		if (current_count)
 			*current_count = 0;
 		return false;
@@ -70,12 +134,26 @@ void gps_free_alfa_buf() {
 
 void gps_check_alfa_buf(size_t new_size) {
 	FUNC_ENTRY(TAG);
+
+	// Use the enhanced check_and_alloc_buffer which now has built-in safe sizing
 	check_and_alloc_buffer((void **)&log_p_lctx.alfa_buf, new_size,
 						   sizeof(gps_point_t), &log_p_lctx.alfa_buf_size,
 						   MALLOC_CAP_8BIT);
 	if (log_p_lctx.alfa_buf) {
-		memset(log_p_lctx.alfa_buf, 0, new_size * sizeof(gps_point_t));
+		memset(log_p_lctx.alfa_buf, 0, log_p_lctx.alfa_buf_size * sizeof(gps_point_t));
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
+		// Log performance impact if buffer was reduced
+		if (log_p_lctx.alfa_buf_size < new_size) {
+			// Calculate speed requirements: time to cover 500m = buffer_elements / rate
+			uint8_t rate = g_rtc_config.ubx.output_rate;
+			float original_time_s = (float)new_size / (float)rate;
+			float reduced_time_s = (float)log_p_lctx.alfa_buf_size / (float)rate;
+			float original_speed_kmh = (ALFA_DISTANCE_MAX / original_time_s) * 3.6f;
+			float reduced_speed_kmh = (ALFA_DISTANCE_MAX / reduced_time_s) * 3.6f;
+
+			WLOG(TAG, "[%s] Reduced alfa buffer: %zu→%" PRIu16 " elements (%.0fm range requires ≥%.1f km/h, was ≥%.1f km/h)",
+				 __func__, new_size, log_p_lctx.alfa_buf_size, ALFA_DISTANCE_MAX, reduced_speed_kmh, original_speed_kmh);
+		}
 		WLOG(TAG,
 			 "[%s] alfa buffer resized: requested=%zu elems (%zu bytes), "
 			 "allocated=%" PRIu16 " elems (%zu bytes)",
@@ -240,7 +318,6 @@ void init_gps_context_fields(gps_context_t *ctx) {
 		ctx->log_config = &log_config;
 	if (log_p_lctx.xMutex == NULL)
 		log_p_lctx.xMutex = xSemaphoreCreateMutex();
-	gps_user_cfg_init();
 #if defined(GPS_STATS)
 	const esp_timer_create_args_t gps_timer_args = {
 		.callback = &s,
@@ -287,7 +364,6 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
 	gps_free_sec_buf();
 #endif
 	gps_speed_metrics_free();
-	gps_user_cfg_deinit();
 	ctx->gps_fields_initialized = 0;
 }
 

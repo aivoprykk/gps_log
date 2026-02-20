@@ -9,11 +9,7 @@
 
 static const char *TAG = "gps_log";
 
-// #if (C_LOG_LEVEL == LOG_TRACE_NUM) && defined(SHOW_SAVED_FRAMES)
-// #define CONFIG_GPS_TIMER_STATS_ENABLED 1
-// #endif
 #define GPS_TASK_DEBUG 1
-#define CONFIG_GPS_TIMER_STATS_ENABLED 1
 #if defined(CONFIG_GPS_TIMER_STATS_ENABLED)
 static ubx_msg_stats_t cur_msg_stats = {0};
 static ubx_msg_stats_t prev_msg_stats = {0};
@@ -161,9 +157,11 @@ static void gps_adjust_rate_for_partition_space(void) {
 			 free_bytes);
 		lctx.output_rate_swp =
 			g_rtc_config.ubx.output_rate;			   // Save current rate
-		g_rtc_config.ubx.output_rate = UBX_OUTPUT_5HZ; // Drop to 1–2 Hz
+		g_rtc_config.ubx.output_rate = UBX_OUTPUT_5HZ; // Drop to 5 Hz
 		ubx_set_gnss_and_rate(gps->ubx_device, g_rtc_config.ubx.gnss,
 							  g_rtc_config.ubx.output_rate);
+		// Notify UI about low storage condition
+		esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOW_STORAGE, NULL, 0, 0);
 	}
 	// Restore rate when space recovers (>= 700 KB)
 	else if (lctx.output_rate_swp &&
@@ -337,11 +335,12 @@ static void gps_buffers_init(void) {
 	!defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
 static void gps_on_sample_rate_change(void *handler_arg, esp_event_base_t base,
 									  int32_t id, void *event_data) {
-	FUNC_ENTRY_ARGSD(TAG, "new rate:%d", g_rtc_config.ubx.output_rate);
-	/// reallocate alfa buffer depending on output rate
+	uint8_t new_rate = g_rtc_config.ubx.output_rate;
+	FUNC_ENTRY_ARGS(TAG, "new rate:%d", new_rate);
+	// Resize alfa buffer if needed - check_and_alloc_buffer will reuse existing
+	// buffer if it's already large enough (e.g., 20Hz->5Hz keeps 20Hz buffer)
 	if (xSemaphoreTake(log_p_lctx.xMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-		gps_free_alfa_buf();
-		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(g_rtc_config.ubx.output_rate));
+		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(new_rate));
 		xSemaphoreGive(log_p_lctx.xMutex);
 	}
 }
@@ -436,6 +435,8 @@ static void gps_on_ubx_deinit(void *handler_arg, esp_event_base_t base,
 
 #endif // CONFIG_GPS_LOG_STATIC_A_BUFFER || CONFIG_GPS_LOG_STATIC_S_BUFFER
 
+static bool ubx_init_rate_adjusted = false;
+
 static void gpsTask(void *parameter) {
 	FUNC_ENTRYD(TAG);
 	uint32_t now = 0, mt = 0;
@@ -449,6 +450,7 @@ static void gpsTask(void *parameter) {
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM || defined(GPS_TASK_DEBUG))
 	uint32_t loops = 0;
 #endif
+	ubx_init_rate_adjusted = false;
 	while (lctx.gps_task_is_running) {
 		now = get_millis();
 		uint8_t has_decoded_count =
@@ -493,7 +495,6 @@ static void gpsTask(void *parameter) {
 		} else {
 			// UBX device is ready: evaluate rate adjustment when partition is
 			// available
-			static bool ubx_init_rate_adjusted = false;
 			if (!ubx_init_rate_adjusted && gps_has_version_set()) {
 				// First time UBX becomes ready: check rate constraints based on
 				// partition space
@@ -767,6 +768,7 @@ static void gpsTask(void *parameter) {
 							gps, &gps->Ublox, FROM_10M(pvt_snapshot.lat),
 							FROM_10M(pvt_snapshot.lon), gps->gps_speed);
 						if (!ret) {
+							gps->pvt_seq++;  // Increment sequence counter for NAV-PVT data updates
 							new_run_detection(gps,
 											  FROM_100K(pvt_snapshot.heading),
 											  time_cur_speed(time_2s));
@@ -794,6 +796,7 @@ static void gpsTask(void *parameter) {
 #endif
 							}
 							gps_speed_metrics_update();
+							gps->stats_seq++;  // Increment sequence counter for speed metrics updates
 #if defined(CONFIG_GPS_TIMER_STATS_ENABLED)
 							++cur_msg_stats.count_ok;
 #endif
