@@ -11,7 +11,7 @@ typedef struct {
     double lon;
     float speed_ms;      // Speed in m/s
     float heading_deg;   // Heading in degrees
-    
+
     // Track phase
     enum {
         TRACK_PHASE_START,
@@ -21,17 +21,17 @@ typedef struct {
         TRACK_PHASE_RETURN,   // Return to start, 70→0 km/h
         TRACK_PHASE_COMPLETE
     } phase;
-    
+
     // Phase progress
     float phase_distance_m;   // Distance traveled in current phase
     uint32_t sample_count;    // Total samples generated
     uint32_t phase_samples;   // Samples in current phase
-    
+
     // Track configuration
     float rate_hz;           // GPS sample rate (10/20/30 Hz)
     float start_lat;
     float start_lon;
-    
+
 } gps_track_state_t;
 
 /**

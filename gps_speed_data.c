@@ -62,13 +62,13 @@ static void log_gps_error_with_details(gps_error_type_t error_type, gps_metric_n
     if (!gps || !gps->files_opened || !g_rtc_config.gps.log_enables.bits.log_txt || GET_FD(sd_log_txt) <= 0) {
         return;
     }
-    
+
     // Bounds check for lookup tables
     if (error_type >= GPS_ERROR_TYPE_COUNT || metric_name >= GPS_METRIC_COUNT) {
         ELOG(TAG, "Invalid error type or metric name in GPS error logging");
         return;
     }
-    
+
     // Use buffer pool for error details formatting
     logger_buffer_handle_t detail_buffer = {0};
     if (!logger_buffer_pool_is_initialized() || 
@@ -77,15 +77,15 @@ static void log_gps_error_with_details(gps_error_type_t error_type, gps_metric_n
         log_gps_metrics_error_to_file(gps_error_type_strings[error_type], gps_metric_name_strings[metric_name], "Buffer pool unavailable for error details");
         return;
     }
-    
+
     char *details_str = (char*)detail_buffer.buffer;
     va_list args;
     va_start(args, format);
     vsnprintf(details_str, detail_buffer.size, format, args);
     va_end(args);
-    
+
     log_gps_metrics_error_to_file(gps_error_type_strings[error_type], gps_metric_name_strings[metric_name], details_str);
-    
+
     // Release the buffer
     logger_buffer_pool_free(&detail_buffer);
 }
@@ -106,7 +106,7 @@ static void log_gps_metrics_error_to_file(const char* error_type, const char* me
     if (!gps || !gps->files_opened || !g_rtc_config.gps.log_enables.bits.log_txt || GET_FD(sd_log_txt) <= 0) {
         return;
     }
-    
+
     // Use buffer pool for error message - much more efficient than static global buffer
     logger_buffer_handle_t error_buffer = {0};
     if (!logger_buffer_pool_is_initialized() || 
@@ -114,19 +114,19 @@ static void log_gps_metrics_error_to_file(const char* error_type, const char* me
         ELOG(TAG, "Failed to get buffer for GPS error logging");
         return;
     }
-    
+
     char *error_msg = (char*)error_buffer.buffer;
     uint64_t timestamp = esp_timer_get_time() / 1000; // Convert to milliseconds
-    
+
     int len = snprintf(error_msg, error_buffer.size, 
         "[GPS_METRICS_ERROR] Time:%llu Type:%s Metric:%s Details:%s\n",
         timestamp, error_type, metric_name ? metric_name : "UNKNOWN", details ? details : "No details");
-    
+
     if (len > 0 && len < error_buffer.size) {
         WRITETXT(error_msg, len);
     }
     ELOG(TAG, "%s", error_msg);
-    
+
     // Release the buffer back to the pool
     logger_buffer_pool_free(&error_buffer);
 }
@@ -256,7 +256,7 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
         ELOG(TAG, "[%s] Invalid speed metrics or position %d (max: %" PRIu16 ")", __func__, pos, gps->num_speed_metrics);
         return ESP_ERR_INVALID_ARG;
     }
-    
+
     gps_speed_metrics_desc_t *desc = &gps->speed_metrics[pos];
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
     if(desc->handle.time || desc->handle.dist) {
@@ -267,7 +267,7 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
     desc->type = cfg->type;
     desc->window = cfg->window;
     uint16_t size = 0;
-    
+
     ILOG(TAG, "[%s] Initializing metric %d: type=%d, window=%d", __func__, pos, cfg->type, cfg->window);
 
     // Optimize allocation with proper error checking
@@ -373,17 +373,17 @@ void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets
 void gps_speed_metrics_init() {
     FUNC_ENTRY(TAG);
     gps_speed_metrics_check(&initial_speed_metrics_sets[0], lengthof(initial_speed_metrics_sets));
-    
+
     // Validate all metrics are properly initialized
     ILOG(TAG, "[%s] Validating %zu speed metrics initialization...", __func__, lengthof(initial_speed_metrics_sets));
     bool initialization_failed = false;
-    
+
     for (int i = 0; i < lengthof(initial_speed_metrics_sets); i++) {
         const gps_speed_metrics_cfg_t *cfg = &initial_speed_metrics_sets[i];
         if (i < gps->num_speed_metrics && gps->speed_metrics) {
             gps_speed_metrics_desc_t *desc = &gps->speed_metrics[i];
             bool valid = false;
-            
+
             if ((cfg->type & SPEED_TYPE_MASK) == GPS_SPEED_TYPE_TIME) {
                 valid = (desc->handle.time != NULL);
             ILOG(TAG, "  Metric %d (TIME, %d): %s", i, cfg->window, valid ? "OK" : "FAILED");
@@ -411,7 +411,7 @@ void gps_speed_metrics_init() {
                     initialization_failed = true;
                 }
             }
-            
+
             if (!valid) {
                 ELOG(TAG, "CRITICAL: Speed metric %d failed to initialize properly!", i);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
@@ -428,7 +428,7 @@ void gps_speed_metrics_init() {
             initialization_failed = true;
         }
     }
-    
+
     if (initialization_failed) {
         ELOG(TAG, "GPS SPEED METRICS INITIALIZATION FAILED - ERRORS LOGGED TO TXT FILE");
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
@@ -445,7 +445,7 @@ void gps_speed_metrics_free(void) {
     if (!gps->speed_metrics || gps->num_speed_metrics == 0) {
         return;
     }
-    
+
     for (int i = 0; i < gps->num_speed_metrics; ++i) {
         if (gps->speed_metrics[i].type == GPS_SPEED_TYPE_TIME) {
             if (gps->speed_metrics[i].handle.time) {
@@ -470,11 +470,11 @@ void gps_speed_metrics_update(void) {
     if (!gps->speed_metrics || gps->num_speed_metrics == 0) {
         return;
     }
-    
+
     // Cache the metrics count to avoid repeated memory access
     const uint8_t num_metrics = gps->num_speed_metrics;
     gps_speed_metrics_desc_t *metrics = gps->speed_metrics;
-    
+
     // Process all metrics in a single loop for better cache locality
     for(uint8_t i = 0; i < num_metrics; i++) {
         const uint8_t type = metrics[i].type;
@@ -904,7 +904,7 @@ static inline bool store_avg_speed_by_time_optimized(struct gps_speed_by_time_s 
     // printf("[%s] %" PRIu32 "\n", __func__, time_window_delta);
     bool window_reached = false;
     const uint32_t current_speed = log_p_lctx.buf_gspeed[buf_index(log_p_lctx.index_gspeed)];
-    
+
     if (time_window_delta < log_p_lctx.buf_gspeed_size) {  // if time window is smaller than the sample_rate*BUFFER, use normal buffer
         me->avg_s_sum += current_speed;  // always add gSpeed at every update
         if (log_p_lctx.index_gspeed >= time_window_delta) { // once window is reached, subtract old value from the sum
@@ -1112,26 +1112,26 @@ static float point_to_line_distance_optimized(const gps_point_t * act, const gps
     // Pre-calculate corrections to avoid repeated calculations
     const float corr_lat = METERS_PER_LATITUDE_DEGREE;
     const float corr_long = corr_lat * cos(act->latitude * DEG2RAD_CONST);
-    
+
     // Cache differences
     const float dlat = p2->latitude - p1->latitude;
     const float dlong = p2->longitude - p1->longitude;
     const float dlat_act = act->latitude - p1->latitude;
     const float dlong_act = act->longitude - p1->longitude;
-    
+
     // Pre-calculate squared corrections
     const float corr_lat_sq = corr_lat * corr_lat;
     const float corr_long_sq = corr_long * corr_long;
-    
+
     const float lambda_T = (dlat * dlat_act * corr_lat_sq) + (dlong * dlong_act * corr_long_sq);
     const float lambda_N = (dlat * dlat * corr_lat_sq) + (dlong * dlong * corr_long_sq);
-    
+
     const float lambda = lambda_T / lambda_N;
-    
+
     // Optimized final calculation
     const float dx = (dlat_act - lambda * dlat) * corr_lat;
     const float dy = (dlong_act - lambda * dlong) * corr_long;
-    
+
     return sqrtf(dx * dx + dy * dy); // Use sqrtf for float precision
 }
 
@@ -1242,12 +1242,12 @@ uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S
     const uint8_t sample_rate = g_rtc_config.ubx.output_rate;
 
     log_p_lctx.heading = unwrap_heading_optimized(actual_heading, &log_p_lctx.old_heading, &log_p_lctx.delta_heading);    
-    
+
     /// detect heading change over 15s is more than 40°, a new run is started
     const uint16_t mean_heading_delta_time = TIME_WINDOW_SAMPLES_15S * sample_rate;
     const float inv_mean_heading_time = 1.0f / mean_heading_delta_time;
     log_p_lctx.heading_mean = log_p_lctx.heading_mean * (1.0f - inv_mean_heading_time) + log_p_lctx.heading * inv_mean_heading_time;
-    
+
     /// detection stand still, more then 2s with velocity < 1m/s 
     detect_run_start_end(S2_speed);
 

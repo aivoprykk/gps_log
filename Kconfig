@@ -28,7 +28,8 @@ menu "Logger GPS Log Module Configuration"
             GPS_SAT_info buffersize for Mean CNO  values, here 10 NAV_SAT messages are stored
     config GPS_LOG_STACK_SIZE
         int "GPS Log Module Stack Size in bytes"
-        default 3072
+        default 3456 if IDF_TARGET_ESP32S3
+        default 3328
         help
         GPS Log Module Stack Size in bytes
     config GPS_LOG_ENABLE_GPY
@@ -78,16 +79,4 @@ menu "Logger GPS Log Module Configuration"
         default 5 if GPS_LOG_LEVEL_USER
         default 6 if GPS_LOG_LEVEL_NONE
     endif
-    choice
-        bool "Json library"
-        default GPS_LOG_USE_CCAN_JSON
-        config GPS_LOG_USE_CJSON
-            bool "Enable CJSON for GPS Log Module"
-            help
-                Enable CJSON for GPS Log Module
-        config GPS_LOG_USE_CCAN_JSON
-            bool "Enable CCAN Json for GPS Log Module"
-            help
-                Enable CCAN Json for GPS Log Module       
-    endchoice
 endmenu

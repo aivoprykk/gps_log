@@ -27,6 +27,7 @@ extern "C" {
     l(GPS_TIME_SET) \
     l(GPS_NEW_RUN) \
     l(GPS_NAV_MODE_CHANGED) \
+    l(LOW_STORAGE) \
     l(CFG_SET) \
     l(CFG_GET) \
     l(CFG_CHANGED) \

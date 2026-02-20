@@ -8,7 +8,7 @@ extern "C" {
 #include "gps_log.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
-#include "config.h"
+#include "config_observer.h"
 #include "unified_config.h"
 #include "gps_log_events.h"
 #include "dstat_screens.h"
@@ -156,8 +156,8 @@ extern gps_p_context_t log_p_lctx;
 
 inline bool gps_log_file_bits_check(cfg_gps_log_enables_t *enables) {
     return (
-            enables->bits.log_ubx 
-            || enables->bits.log_sbp 
+            enables->bits.log_ubx
+            || enables->bits.log_sbp
 #if defined (GPS_LOG_ENABLE_GPY)
             || enables->bits.log_gpy
 #endif

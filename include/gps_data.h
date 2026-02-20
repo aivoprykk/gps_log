@@ -53,11 +53,11 @@ typedef struct gps_context_s {
     uint16_t alfa_count;     // counter for alfa
 
     uint32_t time_out_gps_msg;
-    
+
     //uint32_t last_gps_msg;
-    
+
     uint8_t next_gpy_full_frame;
-    
+
     int32_t gps_speed;
     uint32_t start_logging_millis;
 
@@ -72,7 +72,7 @@ typedef struct gps_context_s {
     const char * SW_version;
     uint8_t record;
     uint16_t lost_frames;
-        
+
     bool time_set;
     bool signal_ok;
     uint32_t first_fix;
@@ -82,6 +82,8 @@ typedef struct gps_context_s {
     gps_run_t max_speed;
     uint8_t frame_lost_flag;
     uint8_t gps_timeout_flag;
+    uint32_t pvt_seq;      // Sequence counter for NAV-PVT data updates
+    uint32_t stats_seq;    // Sequence counter for speed metrics updates
 } gps_context_t;
 
 #define CONTEXT_GPS_DEFAULT_CONFIG() { \
@@ -112,7 +114,9 @@ typedef struct gps_context_s {
     .skip_alfa_after_stop = 0, \
     .max_speed = GPS_RUN_DEFAULT_CONFIG(), \
     .frame_lost_flag = 0, \
-    .gps_timeout_flag = 0 \
+    .gps_timeout_flag = 0, \
+    .pvt_seq = 0, \
+    .stats_seq = 0 \
 }
 
 extern gps_context_t * gps;

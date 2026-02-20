@@ -7,7 +7,6 @@ SET(SRCS
     log_ubx.c
     dstat_screens.c
     gps_log.c
-    gps_user_cfg.c
     gps_speed_data.c
     gps_satellite_data.c)
 SET(INCLUDE include)

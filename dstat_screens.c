@@ -296,7 +296,7 @@ const screen_f_t avail_fields[] = {
 
     {fld_m1852_r1_display, SCR_TYPE_FLOAT, .value.num = M1852_r1_display, "NMR1", "R1", m1852},
     {fld_m1852_r2_display, SCR_TYPE_FLOAT, .value.num = M1852_r2_display, "NMR2", "R2", m1852},
-    
+
     {fld_s10_cur_run_max, SCR_TYPE_FLOAT, .value.num = S10_cur_run_max, "10s", "M", s10}, // current max speed during run
 
     {fld_total_time_hms, SCR_TYPE_TIME_HMS, .value.timestr = total_time_hms, "Tm", "Tm", ttime},
