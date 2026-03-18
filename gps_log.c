@@ -340,7 +340,7 @@ static void gps_on_sample_rate_change(void *handler_arg, esp_event_base_t base,
 	// Resize alfa buffer if needed - check_and_alloc_buffer will reuse existing
 	// buffer if it's already large enough (e.g., 20Hz->5Hz keeps 20Hz buffer)
 	if (xSemaphoreTake(log_p_lctx.xMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(new_rate));
+		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(new_rate, spd_threshold_for_alfa(new_rate)));
 		xSemaphoreGive(log_p_lctx.xMutex);
 	}
 }
@@ -350,6 +350,11 @@ static void gps_on_ubx_config_changed(void *handler_arg, esp_event_base_t base,
 	FUNC_ENTRY(TAG);
 	// Request UBX restart to apply new GNSS/rate configuration
 	lctx.ubx_restart_requested = true;
+	// Signal in-progress setup to abort so new config is applied immediately
+	ubx_ctx_t *ubx = (ubx_ctx_t *)handler_arg;
+	if (ubx) {
+		ubx->reconfig_requested = true;
+	}
 }
 
 static void gps_config_changed_cb(size_t group, size_t index) {
@@ -462,19 +467,29 @@ static void gpsTask(void *parameter) {
 		}
 #endif
 		if (!gps_has_version_set() || lctx.ubx_restart_requested) {
-			mt = now - (ubx_ctx->ready ? ubx_ctx->ready_time : SEC_TO_MS(5));
-			// ILOG(TAG, "[%s] Gps init ... (%" PRIu32 "ms)", __FUNCTION__, mt);
-			if (mt > SEC_TO_MS(10)) { // 5 seconds
-				if (ubx_ctx->ready) {
-					ubx_off(ubx_ctx); // uart deinit
-					vTaskDelay(pdMS_TO_TICKS(100));
-					lctx.ubx_fail_count++;
+			bool is_reconfig = lctx.ubx_restart_requested && ubx_ctx->ready;
+			if (is_reconfig) {
+				// Explicit reconfig: skip cooldown, restart immediately
+				ILOG(TAG, "[%s] Reconfig requested, restarting UBX",
+					 __FUNCTION__);
+				ubx_off(ubx_ctx); // clears reconfig_requested
+				vTaskDelay(pdMS_TO_TICKS(100));
+				ubx_setup(ubx_ctx);
+			} else {
+				// Initial boot or retry: use 10s cooldown guard
+				mt = now
+					 - (ubx_ctx->ready ? ubx_ctx->ready_time : SEC_TO_MS(5));
+				if (mt > SEC_TO_MS(10)) {
+					if (ubx_ctx->ready) {
+						ubx_off(ubx_ctx); // uart deinit
+						vTaskDelay(pdMS_TO_TICKS(100));
+						lctx.ubx_fail_count++;
+					}
+					ubx_setup(ubx_ctx); // uart init and reset
 				}
-				ubx_setup(ubx_ctx); // uart init and reset
 			}
 			if (lctx.ubx_fail_count > 50) {
-				if (!gps_has_version_set()) { // only when no hwVersion is
-											  // received
+				if (!gps_has_version_set()) {
 					if (esp_event_post(GPS_LOG_EVENT,
 									   GPS_LOG_EVENT_GPS_REQUEST_RESTART, NULL,
 									   0, pdMS_TO_TICKS(100)) != ESP_OK) {
@@ -1040,6 +1055,13 @@ int gps_shut_down() {
 		gps->signal_ok = false;
 		lctx.gps_log_delay = 0;
 	}
+	// Stop GPS task FIRST before any async writer teardown.
+	// The GPS task writes to async_writer_queue and async_pool at up to 20Hz.
+	// close_files() deletes both those queues inside async_writer_stop(), so if
+	// the GPS task is mid-xQueueSend or mid-logger_fixed_pool_alloc when those
+	// handles are freed, FreeRTOS state is corrupted and the device hangs
+	// forever (no logs, no sleep reached, reproducible on both cores / rates).
+	gps_task_stop();
 	if (gps->time_set) { // Only safe to RTC memory if new GPS data is available
 						 // !!
 		if (esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_GPS_SAVE_FILES, NULL, 0,
@@ -1051,10 +1073,9 @@ int gps_shut_down() {
 		if (gps->files_opened) {
 			gps_speed_metrics_save_session();
 			close_files(gps);
+			// Async writer stopped inside close_files() in gps_log_file.c
 		}
 	}
-	gps_task_stop();
-	// Async writer now stopped in close_files() in gps_log_file.c
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER) ||                                \
 	!defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
 	if (lctx.gps_events_registered) {

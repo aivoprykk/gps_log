@@ -10,12 +10,15 @@
 #include <sys/unistd.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdatomic.h>
 
 #include <esp_mac.h>
+#include <esp_heap_caps.h>
 
 #include "gps_log.h"
 // #include "esp_log.h"
 #include "logger_buffer_pool.h"
+#include "logger_fixed_pool.h"
 
 #include "strbf.h"
 #include "numstr.h"
@@ -53,7 +56,7 @@ static const char *TAG = "gps_log";
     #define ASYNC_WRITER_BUFFER_SIZE    4096   // Default to 4KB for modern cards
 #endif
 
-#define ASYNC_WRITER_QUEUE_DEPTH    64     // Queue depth for 2x20Hz = 40 writes/sec
+#define ASYNC_WRITER_QUEUE_DEPTH    16     // Queue depth for 1x20Hz = 20 writes/sec
 #define ASYNC_WRITER_FLUSH_TIMEOUT_MS 1000 // Flush buffer after 1 second if not full
 
 typedef enum {
@@ -62,11 +65,23 @@ typedef enum {
     ASYNC_WRITE_REQUEST_CLOSE,    // Close file and cleanup
 } async_write_request_type_t;
 
+// ============================================================================
+// ASYNC WRITE POOL - Pre-allocated fixed-size blocks eliminate hot-path malloc.
+// GPS frames: UBX/SBP typically <128B, GPX text <400B; 512B covers all cases.
+// 16 blocks x 512B = 8KB static DRAM; zero alloc/free on GPS hot path.
+// ============================================================================
+#define ASYNC_POOL_BLOCK_SIZE   512   // Max GPS frame (covers GPX text ~400B)
+#define ASYNC_POOL_BLOCK_COUNT  16    // Matches QUEUE_DEPTH; total pool = 8KB
+
+typedef struct {
+    uint8_t data[ASYNC_POOL_BLOCK_SIZE];
+    size_t  len;                  // Actual data length in this block
+} async_pool_block_t;
+
 typedef struct {
     async_write_request_type_t type;
     uint8_t file_index;           // sd_log_ubx, sd_log_sbp, etc.
-    const uint8_t *data;          // Data to write (only for DATA type)
-    size_t len;                   // Length of data
+    async_pool_block_t *block;    // DATA: borrowed pool block; NULL for FLUSH/CLOSE
 } async_write_request_t;
 
 // Per-file write buffer state
@@ -78,8 +93,12 @@ typedef struct {
 
 static QueueHandle_t async_writer_queue = NULL;
 static TaskHandle_t async_writer_task_handle = NULL;
-static file_write_buffer_t file_buffers[5] = {0}; // Max 5 file types (UBX, SBP, GPX, GPY, TXT)
-static bool async_writer_running = false;
+static file_write_buffer_t file_buffers[sd_log_end] = {0}; // Max 5 file types (UBX, SBP, GPX, GPY, TXT)
+static atomic_bool async_writer_running = false;
+
+// Pool storage - dynamically allocated on init, freed on stop; lifecycle managed by logger_fixed_pool
+static async_pool_block_t *async_pool_storage = NULL;
+static logger_fixed_pool_t async_pool = {0};
 
 // Forward declarations
 static void async_writer_task(void *arg);
@@ -106,7 +125,8 @@ static esp_err_t get_gps_message_buffer(logger_buffer_handle_t *handle) {
         ELOG(TAG, "Buffer pool not initialized");
         return ESP_ERR_INVALID_STATE;
     }
-    return logger_buffer_pool_alloc(LOGGER_BUFFER_MEDIUM, LOGGER_BUFFER_USAGE_GPS_MESSAGE, handle, portMAX_DELAY);
+    return logger_buffer_pool_alloc(LOGGER_BUFFER_MEDIUM,
+        LOGGER_BUFFER_USAGE_GPS_MESSAGE, handle, pdMS_TO_TICKS(5000));
 }
 
 // Helper function to get GPS scratch buffer (256 bytes)
@@ -115,7 +135,8 @@ static esp_err_t get_gps_scratch_buffer(logger_buffer_handle_t *handle) {
         ELOG(TAG, "Buffer pool not initialized");
         return ESP_ERR_INVALID_STATE;
     }
-    return logger_buffer_pool_alloc(LOGGER_BUFFER_SMALL, LOGGER_BUFFER_USAGE_GPS_DATA, handle, portMAX_DELAY);
+    return logger_buffer_pool_alloc(LOGGER_BUFFER_SMALL,
+        LOGGER_BUFFER_USAGE_GPS_DATA, handle, pdMS_TO_TICKS(5000));
 }
 
 // Sync log_file_bits with current runtime config (g_rtc_config.gps)
@@ -197,7 +218,8 @@ static esp_err_t async_writer_write_buffered(uint8_t file_index, const uint8_t *
 
     // Allocate buffer on first write
     if (!fb->buffer) {
-        fb->buffer = (uint8_t *)malloc(ASYNC_WRITER_BUFFER_SIZE);
+        /* Prefer internal DRAM; fall back to DEFAULT (may include SPIRAM) */
+        fb->buffer = (uint8_t *)heap_caps_malloc(ASYNC_WRITER_BUFFER_SIZE, buffer_caps);
         if (!fb->buffer) {
             ELOG(TAG, "Failed to allocate %dB buffer for file %"PRIu8, ASYNC_WRITER_BUFFER_SIZE, file_index);
             return ESP_ERR_NO_MEM;
@@ -243,10 +265,13 @@ static void async_writer_task(void *arg) {
         if (xQueueReceive(async_writer_queue, &req, pdMS_TO_TICKS(100)) == pdTRUE) {
             switch (req.type) {
                 case ASYNC_WRITE_REQUEST_DATA:
-                    if (req.data && req.len > 0) {
-                        async_writer_write_buffered(req.file_index, req.data, req.len);
-                        // Free the data buffer allocated by caller
-                        free((void*)req.data);
+                    if (req.block) {
+                        if (req.block->len > 0) {
+                            async_writer_write_buffered(req.file_index,
+                                                        req.block->data, req.block->len);
+                        }
+                        logger_fixed_pool_free(&async_pool, req.block);  // Return block to pool (O(1))
+                        req.block = NULL;
                     }
                     break;
 
@@ -259,7 +284,7 @@ static void async_writer_task(void *arg) {
                     async_writer_flush_buffer(req.file_index);
                     // Free buffer
                     if (file_buffers[req.file_index].buffer) {
-                        free(file_buffers[req.file_index].buffer);
+                        heap_caps_free(file_buffers[req.file_index].buffer);
                         file_buffers[req.file_index].buffer = NULL;
                         file_buffers[req.file_index].buffer_used = 0;
                     }
@@ -270,7 +295,7 @@ static void async_writer_task(void *arg) {
         // Periodic timeout flush check (every 100ms)
         TickType_t now = xTaskGetTickCount();
         if ((now - last_timeout_check) >= pdMS_TO_TICKS(100)) {
-            for (int i = 0; i < 5; i++) {
+            for (uint8_t i = 0; i < sd_log_end; i++) {
                 file_write_buffer_t *fb = &file_buffers[i];
                 if (fb->buffer && fb->buffer_used > 0) {
                     // Flush if data older than timeout threshold
@@ -285,19 +310,20 @@ static void async_writer_task(void *arg) {
     }
 
     // Cleanup on exit: flush all buffers
-    for (int i = 0; i < 5; i++) {
+    for (uint8_t i = 0; i < sd_log_end; i++) {
         if (file_buffers[i].buffer) {
             async_writer_flush_buffer(i);
-            free(file_buffers[i].buffer);
+            heap_caps_free(file_buffers[i].buffer);
             file_buffers[i].buffer = NULL;
             file_buffers[i].buffer_used = 0;
         }
     }
 
     ILOG(TAG, "Async writer task stopped");
+    async_writer_task_handle = NULL;
     vTaskDelete(NULL);
 }
-#define ASYNC_WRITER_TASK_STACK_SIZE 3072
+#define ASYNC_WRITER_TASK_STACK_SIZE 2560
 /**
  * @brief Start async writer subsystem
  */
@@ -306,20 +332,63 @@ esp_err_t async_writer_start(void) {
         WLOG(TAG, "Async writer already running");
         return ESP_OK;
     }
+    task_memory_info(__func__);
+    mem_info();
+    // Allocate pool storage dynamically (eliminates static memory usage)
+    FUNC_ENTRY_ARGS(TAG, "Starting async writer with pool block size %d bytes, count %d, total %zu bytes", 
+              ASYNC_POOL_BLOCK_SIZE, ASYNC_POOL_BLOCK_COUNT, ASYNC_POOL_BLOCK_COUNT * sizeof(async_pool_block_t));
+    async_pool_storage = (async_pool_block_t *)heap_caps_malloc(
+        ASYNC_POOL_BLOCK_COUNT * sizeof(async_pool_block_t), buffer_caps);
+    if (!async_pool_storage) {
+        ELOG(TAG, "Failed to allocate async write pool (%zu bytes)", 
+             ASYNC_POOL_BLOCK_COUNT * sizeof(async_pool_block_t));
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Initialize pre-allocated block pool (eliminates hot-path malloc)
+    esp_err_t pool_err = logger_fixed_pool_init(&async_pool, async_pool_storage,
+                                                 sizeof(async_pool_block_t),
+                                                 ASYNC_POOL_BLOCK_COUNT);
+    if (pool_err != ESP_OK) {
+        ELOG(TAG, "Failed to initialize async write pool");
+        heap_caps_free(async_pool_storage);
+        async_pool_storage = NULL;
+        return pool_err;
+    }
 
     // Create queue for write requests
     async_writer_queue = xQueueCreate(ASYNC_WRITER_QUEUE_DEPTH, sizeof(async_write_request_t));
     if (!async_writer_queue) {
         ELOG(TAG, "Failed to create async writer queue");
+        logger_fixed_pool_deinit(&async_pool);
         return ESP_ERR_NO_MEM;
     }
 
+    // Pre-allocate sector buffers for currently open files.
+    // Avoids first-write allocation failure mid-recording; non-fatal if heap tight.
+    for (uint8_t i = 0; i < sd_log_end; i++) {
+        if (GET_FD(i) >= 0 && !file_buffers[i].buffer) {
+            FUNC_ENTRY_ARGS(TAG, "Pre-allocating buffer for open file %d (%dB)", i, ASYNC_WRITER_BUFFER_SIZE);
+            file_buffers[i].buffer = (uint8_t *)heap_caps_malloc(ASYNC_WRITER_BUFFER_SIZE, buffer_caps);
+            if (!file_buffers[i].buffer) {
+                WLOG(TAG, "Pre-alloc failed for file %d (%dB), will retry on first write",
+                     i, ASYNC_WRITER_BUFFER_SIZE);
+            } else {
+                file_buffers[i].buffer_used = 0;
+                file_buffers[i].last_write_tick = xTaskGetTickCount();
+            }
+        }
+    }
+
+    task_memory_info(__func__);
+    mem_info();
+    
     // Create writer task (priority 5, below GPS task priority 10)
     async_writer_running = true;
     BaseType_t ret = xTaskCreatePinnedToCore(
         async_writer_task,
         "async_writer",
-        ASYNC_WRITER_TASK_STACK_SIZE,   // 3.75KB stack
+        ASYNC_WRITER_TASK_STACK_SIZE,
         NULL,
         5,                              // Priority 5 (lower than GPS task)
         &async_writer_task_handle,
@@ -331,11 +400,14 @@ esp_err_t async_writer_start(void) {
         vQueueDelete(async_writer_queue);
         async_writer_queue = NULL;
         async_writer_running = false;
+        logger_fixed_pool_deinit(&async_pool);
         return ESP_FAIL;
     }
 
     ILOG(TAG, "Async writer started (%dB sector-aligned buffering, %dms flush timeout)", 
          ASYNC_WRITER_BUFFER_SIZE, ASYNC_WRITER_FLUSH_TIMEOUT_MS);
+    task_memory_info(__func__);
+    mem_info();
     return ESP_OK;
 }
 
@@ -354,12 +426,21 @@ void async_writer_stop(void) {
     for (int i = 0; i < 20 && async_writer_task_handle != NULL; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+    // Grace period: task sets handle NULL then calls vTaskDelete(NULL);
+    // a brief yield ensures the scheduler has cleaned up the TCB before
+    // we delete the queue that the task may still reference in that window.
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     if (async_writer_queue) {
         vQueueDelete(async_writer_queue);
         async_writer_queue = NULL;
     }
 
+    logger_fixed_pool_deinit(&async_pool);
+    if (async_pool_storage) {
+        heap_caps_free(async_pool_storage);
+        async_pool_storage = NULL;
+    }
     async_writer_task_handle = NULL;
     ILOG(TAG, "Async writer stopped");
 }
@@ -380,24 +461,31 @@ static esp_err_t queue_async_write(uint8_t file_index, const uint8_t *data, size
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Allocate copy of data (freed by writer task)
-    uint8_t *data_copy = (uint8_t *)malloc(len);
-    if (!data_copy) {
-        ELOG(TAG, "Failed to allocate data copy for async write");
+    // Reject frames too large for the pool (caller falls back to sync write)
+    if (len > ASYNC_POOL_BLOCK_SIZE) {
+        WLOG(TAG, "Frame too large for pool (%zu > %d), using sync write", len, ASYNC_POOL_BLOCK_SIZE);
         return ESP_ERR_NO_MEM;
     }
-    memcpy(data_copy, data, len);
+
+    // Borrow a pre-allocated block from pool (O(1), zero heap pressure)
+    async_pool_block_t *blk = (async_pool_block_t *)logger_fixed_pool_alloc(&async_pool);
+    if (!blk) {
+        WLOG(TAG, "Write pool exhausted for file %"PRIu8" (%zu B), using sync write",
+             file_index, len);
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(blk->data, data, len);
+    blk->len = len;
 
     async_write_request_t req = {
         .type = ASYNC_WRITE_REQUEST_DATA,
         .file_index = file_index,
-        .data = data_copy,
-        .len = len
+        .block = blk,
     };
 
     // Non-blocking send (0 timeout)
     if (xQueueSend(async_writer_queue, &req, 0) != pdTRUE) {
-        free(data_copy);
+        logger_fixed_pool_free(&async_pool, blk);
         ELOG(TAG, "Async writer queue full (dropped %zu bytes for file %"PRIu8")", len, file_index);
         return ESP_ERR_TIMEOUT;
     }
@@ -416,8 +504,7 @@ static esp_err_t queue_async_flush(uint8_t file_index) {
     async_write_request_t req = {
         .type = ASYNC_WRITE_REQUEST_FLUSH,
         .file_index = file_index,
-        .data = NULL,
-        .len = 0
+        .block = NULL,
     };
 
     if (xQueueSend(async_writer_queue, &req, 0) != pdTRUE) {
@@ -438,8 +525,7 @@ static esp_err_t queue_async_close(uint8_t file_index) {
     async_write_request_t req = {
         .type = ASYNC_WRITE_REQUEST_CLOSE,
         .file_index = file_index,
-        .data = NULL,
-        .len = 0
+        .block = NULL,
     };
 
     if (xQueueSend(async_writer_queue, &req, pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -515,7 +601,10 @@ static void vfs_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
         gps_log_config_init();
 
         // Notify UI/other components that config refreshed and ask VFS worker to close+open
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CONFIG_REFRESHED, NULL, 0, portMAX_DELAY);
+        if (esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_CONFIG_REFRESHED,
+                          NULL, 0, pdMS_TO_TICKS(100)) != ESP_OK) {
+            WLOG(TAG, "EVT_FAIL: CONFIG_REFRESHED");
+        }
 
         if (gps) {
             vfs_post_work(VFS_WORK_PARTITION_CHANGED, gps);
@@ -525,7 +614,11 @@ static void vfs_event_handler(void *arg, esp_event_base_t event_base, int32_t ev
         if (gps && gps->files_opened) {
             vfs_post_work(VFS_WORK_CLOSE_FILES, gps);
         }
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+        if (esp_event_post(GPS_LOG_EVENT,
+                          GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0,
+                          pdMS_TO_TICKS(100)) != ESP_OK) {
+            WLOG(TAG, "EVT_FAIL: LOG_FILES_OPEN_FAILED");
+        }
     }
 }
 
@@ -557,7 +650,7 @@ void gps_log_unregister_vfs_handler(void) {
 size_t log_write(const struct gps_context_s * context, uint8_t file, const void *msg, size_t len) {
     int fd = GET_FD(file);
     if (fd < 0)
-        return fd;
+        return 0;
 
     // Use async writer if running
     if (async_writer_running) {
@@ -588,7 +681,11 @@ int log_close(const struct gps_context_s * context, uint8_t file) {
     // Queue async close request (flushes buffer automatically)
     if (async_writer_running) {
         queue_async_close(file);
-        vTaskDelay(pdMS_TO_TICKS(100)); // Give writer time to flush
+        // Wait for queue to drain (bounded, up to 500ms)
+        for (int i = 0; i < 50
+            && uxQueueMessagesWaiting(async_writer_queue) > 0; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
     }
 
     log_fsync(context, file);
@@ -610,7 +707,11 @@ int log_fsync(const struct gps_context_s * context, uint8_t file) {
     // Queue async flush if writer running
     if (async_writer_running) {
         queue_async_flush(file);
-        vTaskDelay(pdMS_TO_TICKS(50)); // Give writer time to flush
+        // Wait for queue to drain (bounded, up to 250ms)
+        for (int i = 0; i < 25
+            && uxQueueMessagesWaiting(async_writer_queue) > 0; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
     }
 
     int result = fsync(fd);
@@ -677,7 +778,11 @@ gps_log_file_config_t *gps_log_config_init(void) {
         WLOG(TAG, "GPS log partition not available - logging disabled until partition found");
         log_config.base_path[0] = '\0';  // Clear path to prevent invalid operations
         // Notify UI/other modules early so the user sees missing storage state
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+        if (esp_event_post(GPS_LOG_EVENT,
+                          GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0,
+                          pdMS_TO_TICKS(100)) != ESP_OK) {
+            WLOG(TAG, "EVT_FAIL: LOG_FILES_OPEN_FAILED");
+        }
         return &log_config;
     }
 
@@ -729,7 +834,11 @@ void open_files(gps_context_t *context) {
     // GATE: Check if partition is available before attempting to open files
     if (!gps_log_partition_is_available()) {
         WLOG(TAG, "Cannot open log files - GPS log partition not available");
-        esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0, portMAX_DELAY);
+        if (esp_event_post(GPS_LOG_EVENT,
+                          GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED, NULL, 0,
+                          pdMS_TO_TICKS(100)) != ESP_OK) {
+            WLOG(TAG, "EVT_FAIL: LOG_FILES_OPEN_FAILED");
+        }
         return;
     }
 
@@ -824,14 +933,23 @@ void open_files(gps_context_t *context) {
             FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
 #if defined(CONFIG_LOGGER_VFS_ENABLED)
             GET_FD(i) = s_open(config->filenames[i], config->base_path, FILE_APPEND);
-            if(GET_FD(i)<=0) {
+            if(GET_FD(i) < 0) {
                 open_failed++;
             }
 #endif
         }
     }
-    esp_event_post(GPS_LOG_EVENT, open_failed ? GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED : GPS_LOG_EVENT_LOG_FILES_OPENED, NULL, 0, portMAX_DELAY);
-    context->files_opened = 1;
+    if (esp_event_post(GPS_LOG_EVENT,
+                      open_failed ? GPS_LOG_EVENT_LOG_FILES_OPEN_FAILED
+                                  : GPS_LOG_EVENT_LOG_FILES_OPENED,
+                      NULL, 0, pdMS_TO_TICKS(100)) != ESP_OK) {
+        WLOG(TAG, "EVT_FAIL: LOG_FILES open/fail event");
+    }
+    // Only mark files as opened if at least one fd was successfully opened
+    context->files_opened = 0;
+    for (int _fi = 0; _fi < sd_log_end; _fi++) {
+        if (GET_FD(_fi) >= 0) { context->files_opened = 1; break; }
+    }
 
     // Start async writer after files opened (only if partition is still available)
     if (!open_failed && gps_log_partition_is_available()) {
@@ -863,7 +981,10 @@ void close_files(gps_context_t *context) {
         }
     }
     context->files_opened = 0;
-    esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_CLOSED, NULL,0, portMAX_DELAY);
+    if (esp_event_post(GPS_LOG_EVENT, GPS_LOG_EVENT_LOG_FILES_CLOSED,
+                      NULL, 0, pdMS_TO_TICKS(100)) != ESP_OK) {
+        WLOG(TAG, "EVT_FAIL: LOG_FILES_CLOSED");
+    }
 }
 
 static int load_balance = 0;
@@ -1014,7 +1135,7 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, g_rtc_config.ubx.output_rate);
     strbf_puts(&sb, " Hz\n");
     strbf_puts(&sb, "Speed units: ");
-    strbf_puts(&sb, speed_units[g_rtc_config.gps.speed_unit > 2 ? 2 : g_rtc_config.gps.speed_unit]);
+    strbf_puts(&sb, get_speed_unit_str(g_rtc_config.gps.speed_unit));
     strbf_puts(&sb, " \n");
     strbf_puts(&sb, "Timezone : ");
     strbf_putn(&sb, g_rtc_config.gps.timezone);

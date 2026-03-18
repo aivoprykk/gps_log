@@ -22,7 +22,7 @@ void printFile(const char *filename);
 
 struct gps_context_s;
 extern struct gps_context_s * gps;
-
+extern uint32_t buffer_caps;
 #define NOGPX (log_get_fd((context), sd_log_gpx)==-1)
 #if defined (CONFIG_GPS_LOG_GPY)
 #define NOGPY (log_get_fd((context), sd_log_gpy)==-1)
@@ -52,10 +52,19 @@ inline int log_get_fd(const struct gps_context_s * context, uint8_t file) {
 #endif
 #include "common_log.h"
 
-#define MIN_ALPHA_SPEED_LOG_MS 2.22f // 8 km/h
 #define ALFA_DISTANCE_MAX 501.0f
-#define ALPHA_BUFFER_SIZE(sample_rate) (uint32_t)(sample_rate * (ALFA_DISTANCE_MAX / MIN_ALPHA_SPEED_LOG_MS) + 1.5f)
-
+#define ALPHA_BUFFER_SIZE(sample_rate, speed) (uint32_t)(sample_rate * (ALFA_DISTANCE_MAX / speed) + 1.5f)
+#define ALFA_THRESHOLDS_MS {2.2f, 2.8f, 3.3f, 4.2f, 5.0f, 5.6f} // m/s for 8,10,12,15,18,20 km/h
+#define ALFA_THRESHOLD_IDX_TABLE {0,0,0,0,0,0,1,1,1,1,1,2,2,2,2,2,2} // index for speed thresholds for alfa logging based on the configured rate (1-20Hz)
+extern const float speed_thresholds_for_alfa[];
+/// known rates are 1, 2, 5, 10, 16 and 20Hz but we want to support any rate between 1 and 20, 
+/// so we use a lookup table for the thresholds for alfa logging based on the configured rate
+extern const uint8_t speed_threshold_index[17];
+inline float spd_threshold_for_alfa(int rate) {
+    if (rate > 16) return speed_thresholds_for_alfa[3];
+    if (rate < 0) return speed_thresholds_for_alfa[0];
+    return speed_thresholds_for_alfa[speed_threshold_index[rate]];
+}
 #define MIN_numSV_FIRST_FIX 5      // before start logging, changed from 4 to 5 7.1/2023
 #define MAX_Sacc_FIRST_FIX 2       // before start logging
 #define MIN_numSV_GPS_SPEED_OK  4  // minimum number of satellites for calculating speed, otherwise
