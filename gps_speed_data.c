@@ -251,16 +251,16 @@ gps_speed_op_t speed_ops = {
 };
 
 esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
-    ILOG(TAG, "[%s] idx: %d type: %d window: %d, max_metrics: %" PRIu16 "", __func__, pos, cfg->type, cfg->window, gps->num_speed_metrics);
+    FUNC_ENTRY_ARGS(TAG, "idx: %d type: %d window: %d, max_metrics: %" PRIu16 "", pos, cfg->type, cfg->window, gps->num_speed_metrics);
     if (!gps->speed_metrics || pos < 0 || pos >= gps->num_speed_metrics) {
-        ELOG(TAG, "[%s] Invalid speed metrics or position %d (max: %" PRIu16 ")", __func__, pos, gps->num_speed_metrics);
+        FUNC_ENTRY_ARGE(TAG, "Invalid speed metrics or position %d (max: %" PRIu16 ")", pos, gps->num_speed_metrics);
         return ESP_ERR_INVALID_ARG;
     }
 
     gps_speed_metrics_desc_t *desc = &gps->speed_metrics[pos];
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
     if(desc->handle.time || desc->handle.dist) {
-        WLOG(TAG, "[%s] Speed set %d already exists, skipping.", __func__, pos);
+        FUNC_ENTRY_ARGW(TAG, "Speed set %d already exists, skipping.", pos);
         return ESP_OK; // Already exists
     }
 #endif
@@ -268,13 +268,15 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
     desc->window = cfg->window;
     uint16_t size = 0;
 
-    ILOG(TAG, "[%s] Initializing metric %d: type=%d, window=%d", __func__, pos, cfg->type, cfg->window);
+    FUNC_ENTRY_ARGW(TAG, "Initializing metric %d: type=%d, window=%d", pos, cfg->type, cfg->window);
 
     // Optimize allocation with proper error checking
     if ((cfg->type & SPEED_TYPE_MASK) == GPS_SPEED_TYPE_TIME) { // time bit set
         if(!desc->handle.time) {
-            if (!check_and_alloc_buffer((void **)&desc->handle.time, 1, sizeof(gps_speed_by_time_t), &size, MALLOC_CAP_DMA)) {
-                ELOG(TAG, "[%s] Failed to allocate time buffer for metric %d", __func__, pos);
+            if (!check_and_alloc_buffer((void **)&desc->handle.time, 1, sizeof(gps_speed_by_time_t), &size,
+            buffer_caps
+            )) {
+                FUNC_ENTRY_ARGE(TAG, "Failed to allocate time buffer for metric %d", pos);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
                 log_gps_error_with_details(GPS_ERROR_MEMORY_ALLOC_FAIL, GPS_METRIC_TIME, 
                     "Time metric %d alloc failed, size=%zu", pos, sizeof(gps_speed_by_time_t));
@@ -285,9 +287,9 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
         if (desc->handle.time) {
             init_gps_speed_by_time(desc->handle.time, cfg->window);
             desc->handle.time->speed.flags = GPS_SPEED_TYPE_TIME;
-        ILOG(TAG, "[%s] Time metric %d initialized successfully", __func__, pos);
+            FUNC_ENTRY_ARGS(TAG, "Time metric %d initialized successfully", pos);
         } else {
-            ELOG(TAG, "[%s] Time handle is null after allocation for metric %d", __func__, pos);
+            FUNC_ENTRY_ARGE(TAG, "Time handle is null after allocation for metric %d", pos);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
             log_gps_error_with_details(GPS_ERROR_NULL_HANDLE, GPS_METRIC_TIME, 
                 "Time handle null after alloc, metric %d", pos);
@@ -297,8 +299,10 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
     }
     else if ((cfg->type & (GPS_SPEED_TYPE_DIST | GPS_SPEED_TYPE_ALFA))) { // dist or alfa bit set
         if(!desc->handle.dist) {
-            if (!check_and_alloc_buffer((void **)&desc->handle.dist, 1, sizeof(gps_speed_by_dist_t), &size, MALLOC_CAP_DMA)) {
-                ELOG(TAG, "[%s] Failed to allocate distance buffer for metric %d", __func__, pos);
+            if (!check_and_alloc_buffer((void **)&desc->handle.dist, 1, sizeof(gps_speed_by_dist_t), &size, 
+            buffer_caps
+            )) {
+                FUNC_ENTRY_ARGE(TAG, "Failed to allocate distance buffer for metric %d", pos);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
                 log_gps_error_with_details(GPS_ERROR_MEMORY_ALLOC_FAIL, GPS_METRIC_DISTANCE, 
                     "Distance metric %d alloc failed, size=%zu", pos, sizeof(gps_speed_by_dist_t));
@@ -312,8 +316,10 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
             if ((cfg->type & GPS_SPEED_TYPE_ALFA)) { // check if alfa bit set
                 if(!desc->handle.dist->alfa) {
                     // Allocate alfa speed instance if not already allocated
-                    if (!check_and_alloc_buffer((void **)&desc->handle.dist->alfa, 1, sizeof(gps_speed_by_alfa_t), &size, MALLOC_CAP_DMA)) {
-                        ELOG(TAG, "[%s] Failed to allocate alfa buffer for metric %d", __func__, pos);
+                    if (!check_and_alloc_buffer((void **)&desc->handle.dist->alfa, 1, sizeof(gps_speed_by_alfa_t), &size, 
+                    buffer_caps
+                    )) {
+                        FUNC_ENTRY_ARGE(TAG, "Failed to allocate alfa buffer for metric %d", pos);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
                         log_gps_error_with_details(GPS_ERROR_MEMORY_ALLOC_FAIL, GPS_METRIC_ALFA, 
                             "Alfa metric %d alloc failed, size=%zu", pos, sizeof(gps_speed_by_alfa_t));
@@ -324,16 +330,16 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
                 if (desc->handle.dist->alfa) {
                     init_gps_speed_by_alfa(desc->handle.dist);
                     desc->handle.dist->speed.flags |= GPS_SPEED_TYPE_ALFA;
-                ILOG(TAG, "[%s] Distance+Alfa metric %d initialized successfully", __func__, pos);
+                    FUNC_ENTRY_ARGS(TAG, "Distance+Alfa metric %d initialized successfully", pos);
                 } else {
-                    ELOG(TAG, "[%s] Alfa handle is null after allocation for metric %d", __func__, pos);
+                    FUNC_ENTRY_ARGE(TAG, "Alfa handle is null after allocation for metric %d", pos);
                     return ESP_ERR_NO_MEM;
                 }
             } else {
-            ILOG(TAG, "[%s] Distance metric %d initialized successfully", __func__, pos);
+                FUNC_ENTRY_ARGS(TAG, "Distance metric %d initialized successfully", pos);
             }
         } else {
-            ELOG(TAG, "[%s] Distance handle is null after allocation for metric %d", __func__, pos);
+            FUNC_ENTRY_ARGE(TAG, "Distance handle is null after allocation for metric %d", pos);
             return ESP_ERR_NO_MEM;
         }
     }
@@ -343,8 +349,10 @@ esp_err_t gps_speed_metrics_add(const gps_speed_metrics_cfg_t *cfg, int pos) {
 void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets) {
     FUNC_ENTRY_ARGS(TAG, "num_sets: %zu, current: %" PRIu16 "", num_sets, gps->num_speed_metrics);
     if(num_sets > gps->num_speed_metrics){
-        if (!check_and_alloc_buffer((void **)&gps->speed_metrics, num_sets, sizeof(gps_speed_metrics_desc_t), &gps->num_speed_metrics, MALLOC_CAP_DMA)) {
-            ELOG(TAG, "[%s] Failed to allocate speed metrics array for %zu sets", __func__, num_sets);
+        if (!check_and_alloc_buffer((void **)&gps->speed_metrics, num_sets, sizeof(gps_speed_metrics_desc_t), &gps->num_speed_metrics, 
+        buffer_caps
+        )) {
+            FUNC_ENTRY_ARGE(TAG, "Failed to allocate speed metrics array for %zu sets", num_sets);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
             log_gps_error_with_details(GPS_ERROR_MEMORY_ALLOC_FAIL, GPS_METRIC_SPEED_METRICS_ARRAY, 
                 "Failed to allocate main speed metrics array, num_sets=%zu, element_size=%zu", 
@@ -353,20 +361,21 @@ void gps_speed_metrics_check(const gps_speed_metrics_cfg_t *cfg, size_t num_sets
             return;
         }
         if (gps->speed_metrics) {
-        ILOG(TAG, "[%s] Allocated %" PRIu16 " speed metrics, initializing %zu", __func__, gps->num_speed_metrics, num_sets);
+            FUNC_ENTRY_ARGS(TAG, "Allocated %" PRIu16 " speed metrics, initializing %zu", gps->num_speed_metrics, num_sets);
             memset(gps->speed_metrics, 0, num_sets * sizeof(gps_speed_metrics_desc_t));
             for (int i = 0; i < num_sets; ++i) {
                 esp_err_t err = gps_speed_metrics_add(&cfg[i], i);
                 if (err != ESP_OK) {
-                    ELOG(TAG, "[%s] Failed to add speed metric %d: %s", __func__, i, esp_err_to_name(err));
+                    FUNC_ENTRY_ARGE(TAG, "Failed to add speed metric %d: %s", i, esp_err_to_name(err));
                     // Continue with other metrics even if one fails
                 }
             }
         } else {
-            ELOG(TAG, "[%s] Speed metrics array is null after allocation", __func__);
+            FUNC_ENTRY_ARGE(TAG, "Speed metrics array is null after allocation");
+
         }
     } else {
-        ILOG(TAG, "[%s] Speed metrics already initialized (%" PRIu16 " >= %zu)", __func__, gps->num_speed_metrics, num_sets);
+        FUNC_ENTRY_ARGW(TAG, "Speed metrics already initialized (%" PRIu16 " >= %zu)", gps->num_speed_metrics, num_sets);
     }
 }
 
@@ -386,7 +395,7 @@ void gps_speed_metrics_init() {
 
             if ((cfg->type & SPEED_TYPE_MASK) == GPS_SPEED_TYPE_TIME) {
                 valid = (desc->handle.time != NULL);
-            ILOG(TAG, "  Metric %d (TIME, %d): %s", i, cfg->window, valid ? "OK" : "FAILED");
+                FUNC_ENTRY_ARGS(TAG, "  Metric %d (TIME, %d): %s", i, cfg->window, valid ? "OK" : "FAILED");
                 if (!valid) {
                     log_gps_error_simple(GPS_ERROR_INIT_VALIDATION_FAIL, GPS_METRIC_TIME, 
                         "Time metric handle is NULL after initialization");
@@ -396,16 +405,16 @@ void gps_speed_metrics_init() {
                 valid = (desc->handle.dist != NULL);
                 if (valid && (cfg->type & GPS_SPEED_TYPE_ALFA)) {
                     valid = (desc->handle.dist->alfa != NULL);
-                ILOG(TAG, "  Metric %d (DIST+ALFA, %d): %s", i, cfg->window, valid ? "OK" : "FAILED");
+                    FUNC_ENTRY_ARGS(TAG, "  Metric %d (DIST+ALFA, %d): %s", i, cfg->window, valid ? "OK" : "FAILED");
                     if (!valid) {
                         log_gps_error_simple(GPS_ERROR_INIT_VALIDATION_FAIL, GPS_METRIC_ALFA, 
                             "Alfa handle is NULL in distance metric");
                         initialization_failed = true;
                     }
                 } else if (valid) {
-                ILOG(TAG, "  Metric %d (DIST, %d): %s", i, cfg->window, "OK");
+                    FUNC_ENTRY_ARGS(TAG, "  Metric %d (DIST, %d): %s", i, cfg->window, "OK");
                 } else {
-                ILOG(TAG, "  Metric %d (DIST, %d): %s", i, cfg->window, "FAILED");
+                    FUNC_ENTRY_ARGS(TAG, "  Metric %d (DIST, %d): %s", i, cfg->window, "FAILED");
                     log_gps_error_simple(GPS_ERROR_INIT_VALIDATION_FAIL, GPS_METRIC_DISTANCE, 
                         "Distance metric handle is NULL after initialization");
                     initialization_failed = true;
@@ -413,14 +422,14 @@ void gps_speed_metrics_init() {
             }
 
             if (!valid) {
-                ELOG(TAG, "CRITICAL: Speed metric %d failed to initialize properly!", i);
+                FUNC_ENTRY_ARGE(TAG, "CRITICAL: Speed metric %d failed to initialize properly!", i);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
                 log_gps_error_with_details(GPS_ERROR_CRITICAL_INIT_FAIL, GPS_METRIC_SPEED_METRICS_ARRAY, 
                     "Metric index %d failed validation", i);
 #endif
             }
         } else {
-            ELOG(TAG, "CRITICAL: Speed metric %d is out of bounds or array is null!", i);
+            FUNC_ENTRY_ARGE(TAG, "CRITICAL: Speed metric %d is out of bounds or array is null!", i);
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
             log_gps_error_with_details(GPS_ERROR_CRITICAL_BOUNDS_ERROR, GPS_METRIC_SPEED_METRICS_ARRAY, 
                 "Metric index %d out of bounds", i);
@@ -430,13 +439,13 @@ void gps_speed_metrics_init() {
     }
 
     if (initialization_failed) {
-        ELOG(TAG, "GPS SPEED METRICS INITIALIZATION FAILED - ERRORS LOGGED TO TXT FILE");
+        FUNC_ENTRY_ARGE(TAG, "GPS SPEED METRICS INITIALIZATION FAILED - ERRORS LOGGED TO TXT FILE");
 #if GPS_SPEED_ERROR_LOGGING_ENABLED
         log_gps_error_simple(GPS_ERROR_CRITICAL_INIT_SUMMARY, GPS_METRIC_GPS_SPEED_SYSTEM, 
             "One or more GPS speed metrics failed to initialize properly");
 #endif
     } else {
-    ILOG(TAG, "All GPS speed metrics successfully validated and initialized");
+        ILOG(TAG, "All GPS speed metrics successfully validated and initialized");
     }
 }
 
@@ -525,39 +534,46 @@ static inline void swap_bytes(void *a, void *b, size_t n) {
 }
 
 // Unified sort routine for gps_run_t and up to n parallel arrays
+// Uses insertion sort: O(n) for nearly-sorted data (typical case)
 static void sort_runs(
     gps_run_t runs[],
     void *arrs[], size_t strides[], int num_arrays,
     uint8_t size
 ) {
-    for (uint8_t i = 0; i < (size - 1); i++) {
-        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
-            if (runs[o].avg_speed > runs[o + 1].avg_speed) {
-                gps_run_t t = runs[o]; runs[o] = runs[o + 1]; runs[o + 1] = t;
-                for (int arr_idx = 0; arr_idx < num_arrays; ++arr_idx) {
-                    if (arrs[arr_idx]) {
-                        swap_bytes(
-                            (uint8_t*)arrs[arr_idx] + o * strides[arr_idx],
-                            (uint8_t*)arrs[arr_idx] + (o + 1) * strides[arr_idx],
-                            strides[arr_idx]
-                        );
-                    }
+    for (uint8_t i = 1; i < size; i++) {
+        gps_run_t key = runs[i];
+        int j = (int)i - 1;
+        while (j >= 0 && runs[j].avg_speed > key.avg_speed) {
+            runs[j + 1] = runs[j];
+            for (int arr_idx = 0; arr_idx < num_arrays; ++arr_idx) {
+                if (arrs[arr_idx]) {
+                    swap_bytes(
+                        (uint8_t*)arrs[arr_idx] + j * strides[arr_idx],
+                        (uint8_t*)arrs[arr_idx]
+                            + (j + 1) * strides[arr_idx],
+                        strides[arr_idx]
+                    );
                 }
             }
+            j--;
         }
+        runs[j + 1] = key;
 #if defined(GPS_STATS)
         gps_run_printf(&runs[i]);
 #endif
     }
 }
 
+// Insertion sort for display speeds: O(n) for nearly-sorted data
 static void sort_display(float a[], uint8_t size) {
-    for (uint8_t i = 0; i < (size - 1); i++) {
-        for (uint8_t o = 0; o < (size - (i + 1)); o++) {
-            if (a[o] > a[o + 1]) {
-                float t = a[o]; a[o] = a[o + 1]; a[o + 1] = t;
-            }
+    for (uint8_t i = 1; i < size; i++) {
+        float key = a[i];
+        int j = (int)i - 1;
+        while (j >= 0 && a[j] > key) {
+            a[j + 1] = a[j];
+            j--;
         }
+        a[j + 1] = key;
     }
 }
 
@@ -639,8 +655,11 @@ static uint8_t update_display_speeds(gps_speed_t * speed, uint8_t * record) {
         refresh_display_speeds(&speed->display, speed->RUNS_FOR_DISPLAY, speed->max_speed);
         ret = 1;
     }
-    if (speed->max_speed > speed->RUNS_FOR_DISPLAY[IDX_OF_SPD_ARRAY_MAX_SPD].avg_speed) {
-        speed->display.display_max_speed = speed->max_speed;  // update on the fly, that's not correct here !!!
+    // Derive display_max_speed from sorted array, not raw max_speed
+    float sorted_max =
+        speed->display.display_speed[IDX_OF_SPD_ARRAY_MAX_SPD];
+    if (sorted_max > speed->RUNS_FOR_DISPLAY[IDX_OF_SPD_ARRAY_MAX_SPD].avg_speed) {
+        speed->display.display_max_speed = sorted_max;
         speed->display.record = 1;
         *record = 1;
         ret = 2;
@@ -747,24 +766,31 @@ static inline void store_dist_data(struct gps_speed_by_dist_s *me) {
     update_display_speeds(&me->speed, &gps->record);
 }
 
-static inline void store_and_reset_dist_data_after_run(struct gps_speed_by_dist_s *me) {
-    FUNC_ENTRYD(TAG);
-    // sort_run_alfa(me->speed.runs, me->dist, me->message_nr, (uint32_t*)me->nr_samples, 10);
+/* Sort both run arrays and optionally refresh the display buffer.
+ * Shared by all store_and_reset_*_data_after_run() variants. */
+static inline void _sort_and_update_speed_runs(gps_speed_t *speed, bool update_display) {
     sort_runs(
-        me->speed.runs,
+        speed->runs,
         (void *[]){0},
         (size_t[]){0},
         0, NUM_OF_SPD_ARRAY_SIZE
     );
 #if defined(MUTABLE_RUNS)
     sort_runs(
-        me->speed.RUNS_FOR_DISPLAY,
+        speed->RUNS_FOR_DISPLAY,
         (void *[]){0},
         (size_t[]){0},
         0, NUM_OF_SPD_ARRAY_SIZE
     );
 #endif
-    update_display_speed_array(&me->speed.display, me->speed.RUNS_FOR_DISPLAY, 0, NUM_OF_SPD_ARRAY_SIZE);
+    if (update_display) {
+        update_display_speed_array(&speed->display, speed->RUNS_FOR_DISPLAY, 0, NUM_OF_SPD_ARRAY_SIZE);
+    }
+}
+
+static inline void store_and_reset_dist_data_after_run(struct gps_speed_by_dist_s *me) {
+    FUNC_ENTRYD(TAG);
+    _sort_and_update_speed_runs(&me->speed, true);
     reset_last_run_speeds(&me->speed);
 }
 
@@ -879,23 +905,9 @@ static inline void store_speed_by_time_data(struct gps_speed_by_time_s *me) {
 
 static inline void store_and_reset_time_data_after_run(struct gps_speed_by_time_s *me) {
     FUNC_ENTRYD(TAG);
-    sort_runs(
-        me->speed.runs,
-        (void *[]){0},
-        (size_t[]){0},
-        0, NUM_OF_SPD_ARRAY_SIZE
-    );
-#if defined(MUTABLE_RUNS)
-    sort_runs(
-        me->speed.RUNS_FOR_DISPLAY,
-        (void *[]){0},
-        (size_t[]){0},
-        0, NUM_OF_SPD_ARRAY_SIZE
-    );
-#endif
-    update_display_speed_array(&me->speed.display, me->speed.RUNS_FOR_DISPLAY, 0, NUM_OF_SPD_ARRAY_SIZE);  // update the runs array
+    _sort_and_update_speed_runs(&me->speed, true);
 #if defined(SPEED_BAR_SETUP)
-    store_speed_bar_data(me, context->run_count);  // store the speed bar data
+    store_speed_bar_data(me, context->run_count);  // capture after sort, before reset
 #endif
     reset_last_run_speeds(&me->speed);  // reset the speed for the next run
 }
@@ -984,13 +996,14 @@ static esp_err_t gps_speed_by_alpha_printf(const struct gps_speed_alfa_s *me) {
 
 #if defined(USE_HAVERSINE_DIST_TO_LINE) || defined(USE_HAVERSINE)
 // Optimized coordinate conversion with pre-calculated constants
-static inline void latlon_to_xyz_optimized(const gps_point_t *pt, double *x, double *y, double *z) {
-    const double lat_rad = pt->latitude * DEG2RAD_CONST;
-    const double lon_rad = pt->longitude * DEG2RAD_CONST;
-    const double cos_lat = cos(lat_rad);
-    *x = cos_lat * cos(lon_rad);
-    *y = cos_lat * sin(lon_rad);
-    *z = sin(lat_rad);
+static inline void latlon_to_xyz_optimized(const gps_point_t *pt,
+    float *x, float *y, float *z) {
+    const float lat_rad = pt->latitude * DEG2RAD_CONST;
+    const float lon_rad = pt->longitude * DEG2RAD_CONST;
+    const float cos_lat = cosf(lat_rad);
+    *x = cos_lat * cosf(lon_rad);
+    *y = cos_lat * sinf(lon_rad);
+    *z = sinf(lat_rad);
 }
 #endif
 
@@ -1020,17 +1033,18 @@ static inline void latlon_to_xyz_optimized(const gps_point_t *pt, double *x, dou
 // }
 
 // Optimized haversine calculation with minimal function calls
-static inline double straight_dist_haversine_optimized(const gps_point_t *p1, const gps_point_t *p2) {
-    double x1, y1, z1, x2, y2, z2;
+static inline float straight_dist_haversine_optimized(
+    const gps_point_t *p1, const gps_point_t *p2) {
+    float x1, y1, z1, x2, y2, z2;
     latlon_to_xyz_optimized(p1, &x1, &y1, &z1);
     latlon_to_xyz_optimized(p2, &x2, &y2, &z2);
 
     // Dot product of unit vectors with bounds checking optimized
-    double dot = x1 * x2 + y1 * y2 + z1 * z2;
+    float dot = x1 * x2 + y1 * y2 + z1 * z2;
     // Fast clamping without branches for common case
-    dot = (dot > 1.0) ? 1.0 : ((dot < -1.0) ? -1.0 : dot);
+    dot = (dot > 1.0f) ? 1.0f : ((dot < -1.0f) ? -1.0f : dot);
 
-    return EARTH_RADIUS_M_CONST * acos(dot); // distance in meters
+    return EARTH_RADIUS_M_CONST * acosf(dot); // distance in meters
 }
 
 #else
@@ -1045,13 +1059,11 @@ static inline double straight_dist_haversine_optimized(const gps_point_t *p1, co
 /// @param p1 Pointer to the gps_point_t structure representing the first GPS point (latitude and longitude).
 /// @param p2 Pointer to the gps_point_t structure representing the second GPS point (latitude and longitude).
 /// @return The squared straight-line distance between the two GPS points in meters.
-static inline double straight_dist_square(gps_point_t * p1, gps_point_t * p2) {
-    // now calculate the absolute distance alfa_speed::alfa_update(GPS_speed M)
-    // between the starting point and the end point of the 250m distance,
-    // if < 50m this is an alfa !!! note, this is calculated in meters,
-    // therefore alfa_circle also in m !! was (M.m_index-1), should be (M.m_index+1)
+static inline float straight_dist_square(gps_point_t * p1,
+    gps_point_t * p2) {
     float dlat = p1->latitude - p2->latitude;
-    float px = cos(DEG2RAD_CONST * p1->latitude) * (p1->longitude - p2->longitude);
+    float px = cosf(DEG2RAD_CONST * p1->latitude)
+        * (p1->longitude - p2->longitude);
     return DEG_TO_METERS(POW_2(dlat) + POW_2(px));
 }
 #endif
@@ -1147,23 +1159,9 @@ static inline void store_alfa_data(struct gps_speed_alfa_s *me, uint32_t dist) {
     update_display_speeds(&me->speed, &gps->record);
 }
 
-static inline void store_and_reset_alfa_data_after_run(struct gps_speed_alfa_s *me) { 
+static inline void store_and_reset_alfa_data_after_run(struct gps_speed_alfa_s *me) {
     FUNC_ENTRYD(TAG);
-    // sort_run_alfa(me->speed.runs, me->real_distance, me->message_nr, me->dist, 10);
-    sort_runs(
-        me->speed.runs,
-        (void *[]){0},
-        (size_t[]){0},
-        0, NUM_OF_SPD_ARRAY_SIZE
-    );
-#if defined(MUTABLE_RUNS)
-    sort_runs(
-        me->speed.RUNS_FOR_DISPLAY,
-        (void *[]){0},
-        (size_t[]){0},
-        0, NUM_OF_SPD_ARRAY_SIZE
-    );
-#endif
+    _sort_and_update_speed_runs(&me->speed, false);  // alfa has no display array to update
     reset_last_run_speeds(&me->speed);  // reset the speed for the next run
 }
 

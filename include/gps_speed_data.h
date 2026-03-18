@@ -118,7 +118,7 @@ typedef struct gps_speed_op_s {
 typedef struct gps_speed_alfa_s {
     uint16_t distance_window;
     gps_speed_t speed;        // speed over the desired distance
-    double straight_dist_square;
+    float straight_dist_square;
     struct gps_speed_by_dist_s *base; // pointer to the base speed instance, if used
 } gps_speed_by_alfa_t; // struct size is 32 bytes
 
