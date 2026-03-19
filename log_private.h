@@ -100,7 +100,6 @@ typedef struct gps_p_context_s {
 
     bool velocity_0;      // min gemiddelde over 2 s < 1m/s
     bool velocity_5;      // min gemiddelde over 2 s = 1m/s
-    bool dynamic_state;   // ubx setting dynamic model state: sea or portable here !!
 
     bool straight_course; // straight course or not
 #if defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
@@ -147,7 +146,6 @@ typedef struct gps_p_context_s {
     .velocity_0 = false, \
     .velocity_5 = false, \
     .straight_course = false, \
-    .dynamic_state = 0, \
     .delta_heading = 0, \
     .heading_mean = 0, \
     AI, \

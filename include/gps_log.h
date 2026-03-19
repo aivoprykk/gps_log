@@ -17,6 +17,7 @@ uint8_t gps_has_version_set(void);
 
 void gps_log_print_all_stats(void* arg);
 void gps_log_print_stats(uint32_t period_ms, uint8_t expected_hz);
+void gps_request_nav_mode_log(uint8_t old_mode);
 
 // Test function for async UBX config change
 // void test_ubx_config_change(void);

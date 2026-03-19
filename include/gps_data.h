@@ -127,9 +127,7 @@ int push_gps_data(struct gps_context_s * context, struct gps_data_s*, float lati
 
 uint32_t new_run_detection(struct gps_context_s * context, float actual_heading, float S2_speed);
 
-void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed);
-
-int get_cur_nav_mode(int nav_mode);
+void gps_log_nav_mode_change(gps_context_t *context, uint8_t old_mode);
 
 int32_t gps_last_speed_smoothed(uint8_t average_records);
 int32_t gps_last_sec_speed_smoothed(uint8_t average_records);

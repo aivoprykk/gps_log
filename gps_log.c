@@ -106,6 +106,8 @@ typedef struct {
 	TaskHandle_t gps_task_handle;
 	uint16_t ubx_fail_count; // widen to avoid overflow when accumulating error
 							 // penalties
+	uint8_t pending_nav_mode_old_mode;
+	bool nav_mode_log_pending;
 	uint8_t gps_initialized;
 	uint8_t gps_started;
 	uint8_t gps_events_registered;
@@ -121,6 +123,8 @@ static log_context_t lctx = {.old_run_count = 0,
 							 .gps_task_is_running = false,
 							 .gps_task_handle = NULL,
 							 .ubx_fail_count = 0,
+							 .pending_nav_mode_old_mode = 0,
+							 .nav_mode_log_pending = false,
 							 .gps_initialized = 0,
 							 .gps_started = 0,
 							 .gps_events_registered = 0};
@@ -135,6 +139,22 @@ static void gps_file_open_handler(void *handler_arg, esp_event_base_t base,
 								  int32_t id, void *event_data);
 static void gps_file_flush_handler(void *handler_arg, esp_event_base_t base,
 								   int32_t id, void *event_data);
+
+void gps_request_nav_mode_log(uint8_t old_mode) {
+	if (!lctx.nav_mode_log_pending) {
+		lctx.pending_nav_mode_old_mode = old_mode;
+	}
+	lctx.nav_mode_log_pending = true;
+}
+
+static void gps_flush_pending_nav_mode_log(void) {
+	if (!lctx.nav_mode_log_pending || !gps) {
+		return;
+	}
+	const uint8_t old_mode = lctx.pending_nav_mode_old_mode;
+	lctx.nav_mode_log_pending = false;
+	gps_log_nav_mode_change(gps, old_mode);
+}
 
 // Adjust GPS output rate based on available partition space (event-driven from
 // partition change, not hot loop) Called when: partition changes, UBX device
@@ -386,28 +406,6 @@ static void gps_config_changed_cb(size_t group, size_t index) {
 #endif
 }
 
-static void gps_on_ubx_nav_mode_changed(void *handler_arg,
-										esp_event_base_t base, int32_t id,
-										void *event_data) {
-	FUNC_ENTRY_ARGS(TAG, "nav_mode:%d (confirmed by device)",
-					g_rtc_config.ubx.nav_mode);
-	// This handler fires AFTER u-blox confirms nav mode change (response event)
-	// Do NOT call ubx_set_nav_mode() here - it already happened!
-	// Only use this for logging/monitoring the confirmed change
-}
-
-static void gps_on_gps_log_nav_mode_changed(void *handler_arg,
-											esp_event_base_t base, int32_t id,
-											void *event_data) {
-	FUNC_ENTRY_ARGS(TAG, "nav_mode:%d", g_rtc_config.ubx.nav_mode);
-	// Actually apply the nav mode change to the u-blox device
-	if (gps && gps->ubx_device) {
-		ubx_set_nav_mode(gps->ubx_device, g_rtc_config.ubx.nav_mode);
-	}
-	// Handle GPS nav mode change file I/O operations in GPS task
-	gps_log_nav_mode_change(gps, 1);
-}
-
 // Test function to simulate UBX config change for testing async reconfiguration
 // void test_ubx_config_change(void) {
 //     FUNC_ENTRY(TAG);
@@ -549,6 +547,11 @@ static void gpsTask(void *parameter) {
 			xSemaphoreTake(ubx_ctx->msg_ready, pdMS_TO_TICKS(timeout_ms));
 
 		if (!signaled && ubx_ctx->ready) {
+			gps_flush_pending_nav_mode_log();
+			if (ubx_ctx->nav_mode_apply_requested &&
+				ubx_apply_pending_nav_mode(ubx_ctx) != ESP_OK) {
+				WLOG(TAG, "[%s] failed to apply pending nav mode", __FUNCTION__);
+			}
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM || defined(GPS_TASK_DEBUG))
 			if ((loops % 100) == 0) {
 				WLOG(TAG, "NOSIG: timeout, no msgs at l=%" PRIu32 "", loops);
@@ -865,6 +868,14 @@ static void gpsTask(void *parameter) {
 			}
 		}
 
+		if (ubx_ctx->nav_mode_apply_requested && ubx_ctx->ready &&
+			!ubx_rx_has_complete_frame(ubx_ctx)) {
+			gps_flush_pending_nav_mode_log();
+			if (ubx_apply_pending_nav_mode(ubx_ctx) != ESP_OK) {
+				WLOG(TAG, "[%s] failed to apply pending nav mode", __FUNCTION__);
+			}
+		}
+
 		// After processing all messages: handle time sync if needed (check
 		// timing once here)
 		if (now >= lctx.next_time_sync || lctx.next_time_sync == 0) {
@@ -1009,12 +1020,6 @@ int gps_start() {
 								   &gps_on_sample_rate_change, gps->ubx_device);
 		esp_event_handler_register(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED,
 								   &gps_on_ubx_config_changed, gps->ubx_device);
-		esp_event_handler_register(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED,
-								   &gps_on_ubx_nav_mode_changed,
-								   gps->ubx_device);
-		esp_event_handler_register(GPS_LOG_EVENT,
-								   GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED,
-								   &gps_on_gps_log_nav_mode_changed, NULL);
 		// Register async file handlers (enqueue work for VFS worker)
 		esp_event_handler_register(GPS_LOG_EVENT,
 								   GPS_LOG_EVENT_REQUEST_FILE_OPEN,
@@ -1083,11 +1088,6 @@ int gps_shut_down() {
 									 &gps_on_sample_rate_change);
 		esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_CONFIG_CHANGED,
 									 &gps_on_ubx_config_changed);
-		esp_event_handler_unregister(UBX_EVENT, UBX_EVENT_NAV_MODE_CHANGED,
-									 &gps_on_ubx_nav_mode_changed);
-		esp_event_handler_unregister(GPS_LOG_EVENT,
-									 GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED,
-									 &gps_on_gps_log_nav_mode_changed);
 		// Unregister async file handlers
 		esp_event_handler_unregister(GPS_LOG_EVENT,
 									 GPS_LOG_EVENT_REQUEST_FILE_OPEN,

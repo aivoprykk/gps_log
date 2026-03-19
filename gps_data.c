@@ -10,6 +10,7 @@
 #include <sys/unistd.h>
 
 #include "gps_log_file.h"
+#include "gps_log.h"
 #include "logger_common.h"
 #include "gps_log_events.h"
 #include "ubx.h"
@@ -282,7 +283,7 @@ static esp_err_t gps_p_context_printf(const gps_p_context_t *me) {
 	printf("\n");
 	printf("velocity_0: %d, ", me->velocity_0);
 	printf("velocity_5: %d, ", me->velocity_5);
-	printf("dynamic_state: %d, ", me->dynamic_state);
+	printf("dynamic_state: %d, ", ubx_nav_mode_is_override_active());
 	printf("delay_count_before_run: %" PRIu32 "\n", me->delay_count_before_run);
 	printf("}\n");
 	return ESP_OK;
@@ -361,6 +362,7 @@ void deinit_gps_context_fields(gps_context_t *ctx) {
 	gps_free_sec_buf();
 #endif
 	gps_speed_metrics_free();
+	ubx_nav_mode_on_session_end();
 	ctx->gps_fields_initialized = 0;
 }
 
@@ -378,40 +380,27 @@ static esp_err_t gps_data_printf(struct gps_data_s *me) {
 
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
 #include "strbf.h"
-void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {
-	FUNC_ENTRY_ARGS(TAG, "%" PRIu8 "", changed);
-	ubx_ctx_t *ubx = context->ubx_device;
-	const char *bstr = " nav_mode changed ";
-	if (changed) {
-		strbf_t strbf;
-		char buf[96] = {0};
-		strbf_inits(&strbf, buf, sizeof(buf));
-		strbf_putul(&strbf,
-					(MS_TO_SEC(get_millis() - context->start_logging_millis)));
-		strbf_puts(&strbf, bstr);
-		strbf_putul(&strbf, g_rtc_config.ubx.nav_mode);
-		if (log_p_lctx.dynamic_state == 0) {
-			strbf_puts(&strbf, " back ");
-			strbf_putul(&strbf, g_rtc_config.ubx.nav_mode == UBX_MODE_PEDESTRIAN
-									? UBX_MODE_PEDESTRIAN
-									: UBX_MODE_PORTABLE);
-		} else {
-			strbf_puts(&strbf, " to ");
-			strbf_putul(&strbf,
-						g_rtc_config.ubx.nav_mode == UBX_MODE_PEDESTRIAN ||
-								g_rtc_config.ubx.nav_mode == UBX_MODE_SEA
-							? UBX_MODE_PORTABLE
-							: UBX_MODE_PEDESTRIAN);
-		}
-		strbf_puts(&strbf, ", speed: ");
-		strbf_putf(&strbf, time_cur_speed(time_2s));
-		strbf_puts(&strbf, "mm/s\n");
-		*strbf.cur = 0;
-		WRITETXT(strbf.start, strbf.cur - strbf.start);
-	}
+void gps_log_nav_mode_change(gps_context_t *context, uint8_t old_mode) {
+	const int new_mode = ubx_nav_mode_get_effective();
+	FUNC_ENTRY_ARGS(TAG, "old:%" PRIu8 " new:%d", old_mode,
+					new_mode);
+	strbf_t strbf;
+	char buf[96] = {0};
+	strbf_inits(&strbf, buf, sizeof(buf));
+	strbf_putul(&strbf,
+				(MS_TO_SEC(get_millis() - context->start_logging_millis)));
+	strbf_puts(&strbf, " nav_mode ");
+	strbf_putul(&strbf, old_mode);
+	strbf_puts(&strbf, "->");
+	strbf_putul(&strbf, new_mode);
+	strbf_puts(&strbf, ", speed: ");
+	strbf_putf(&strbf, time_cur_speed(time_2s));
+	strbf_puts(&strbf, "mm/s\n");
+	*strbf.cur = 0;
+	WRITETXT(strbf.start, strbf.cur - strbf.start);
 }
 #else
-inline void gps_log_nav_mode_change(gps_context_t *context, uint8_t changed) {}
+inline void gps_log_nav_mode_change(gps_context_t *context, uint8_t old_mode) {}
 #endif
 
 const float speed_thresholds_for_alfa[] = ALFA_THRESHOLDS_MS;
@@ -453,16 +442,6 @@ static inline void update_sec_speed_buffer(int32_t gSpeed,
 	}
 }
 
-int get_cur_nav_mode(int nav_mode) {
-	return (log_p_lctx.dynamic_state == 1 && nav_mode == UBX_MODE_PEDESTRIAN)
-			   ? UBX_MODE_PORTABLE
-		   : log_p_lctx.dynamic_state == 1 && nav_mode == UBX_MODE_SEA
-			   ? UBX_MODE_PORTABLE
-		   : log_p_lctx.dynamic_state == 1 && nav_mode == UBX_MODE_PORTABLE
-			   ? UBX_MODE_PEDESTRIAN
-			   : nav_mode;
-}
-
 // This function will always put 3 variables from the GPS into a global buffer:
 // doppler speed, lat and long. A global buffer was chosen because this data
 // must also be available in other classes (GPS_speed() and GPS_time). The last
@@ -475,71 +454,15 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me,
 	ubx_ctx_t *ubx = context->ubx_device;
 	ubx_msg_t *ubxMessage = &ubx->ubx_msg;
 	uint8_t sample_rate = g_rtc_config.ubx.output_rate;
-	// if(g_rtc_config.ubx.nav_mode_auto) {
-	bool changed = 0;
 	const float spd2s = time_cur_speed(time_2s); // speed in mm/s
-	if (log_p_lctx.dynamic_state == 0) {
-		/// switch to dynamic_model "portable" as "pedestrian" only works with
-		/// speed < 30 m/s (108kmh) and "sea" only works with speed < 25 m/s
-		/// (90kmh)
-		if (((spd2s > 29500 &&
-			  g_rtc_config.ubx.nav_mode ==
-				  UBX_MODE_PEDESTRIAN) /// change over 28ms 100kmh
-			 ||
-			 (spd2s > 23750 && g_rtc_config.ubx.nav_mode ==
-								   UBX_MODE_SEA))) { /// change over 24ms 85kmh
-			log_p_lctx.dynamic_state = 1;
-			// ILOG(TAG, "Switching to UBX_MODE_PORTABLE due to speed: %.2f
-			// m/s", spd2s / 1000.0f);
-			g_rtc_config.ubx.nav_mode = UBX_MODE_PORTABLE;
-		} else if (spd2s < 28500 &&
-				   g_rtc_config.ubx.nav_mode ==
-					   UBX_MODE_PORTABLE) { /// change under 28ms 100kmh
-			/// switch to dynamic_model "pedestrian" below 30ms as "portable" is
-			/// less accurate
-			log_p_lctx.dynamic_state = 1;
-			// ILOG(TAG, "Switching to UBX_MODE_PEDESTRIAN due to speed: %.2f
-			// m/s", spd2s / 1000.0f);
-			g_rtc_config.ubx.nav_mode = UBX_MODE_PEDESTRIAN;
-		}
-		if (log_p_lctx.dynamic_state == 1)
-			changed = 1;
-	} else if (log_p_lctx.dynamic_state == 1) {
-		/// switch back to "pedestrian" below 27ms as "pedestrian" is more
-		/// accurate
-		if (spd2s < 27500 &&
-			(g_rtc_config.ubx.nav_mode ==
-			 UBX_MODE_PEDESTRIAN)) { /// change below 24ms 86kmh
-			log_p_lctx.dynamic_state = 0;
-			// ILOG(TAG, "Switching to UBX_MODE_PEDESTRIAN due to speed: %.2f
-			// m/s", spd2s / 1000.0f);
-			g_rtc_config.ubx.nav_mode = UBX_MODE_PEDESTRIAN;
-		} else if (spd2s < 21750 &&
-				   (g_rtc_config.ubx.nav_mode ==
-					UBX_MODE_SEA)) { /// change below 24ms 86kmh
-			log_p_lctx.dynamic_state = 0;
-			// ILOG(TAG, "Switching to UBX_MODE_SEA due to speed: %.2f m/s",
-			// spd2s / 1000.0f);
-			g_rtc_config.ubx.nav_mode = UBX_MODE_SEA;
-		} else if (spd2s > 29500 &&
-				   g_rtc_config.ubx.nav_mode ==
-					   UBX_MODE_PORTABLE) { /// change above 28ms 100kmh
-			log_p_lctx.dynamic_state = 0;
-			// ILOG(TAG, "Switching to UBX_MODE_PORTABLE due to speed: %.2f
-			// m/s", spd2s / 1000.0f);
-			g_rtc_config.ubx.nav_mode = UBX_MODE_PORTABLE;
-		}
-		if (log_p_lctx.dynamic_state == 0)
-			changed = 1;
+	ubx_nav_mode_t old_nav_mode = UBX_MODE_PORTABLE;
+	ubx_nav_mode_t new_nav_mode = UBX_MODE_PORTABLE;
+
+	if (ubx_nav_mode_update_from_speed(spd2s, &old_nav_mode,
+					   &new_nav_mode)) {
+		ubx_request_nav_mode_apply(context->ubx_device);
+		gps_request_nav_mode_log((uint8_t)old_nav_mode);
 	}
-	if (changed) {
-		if (esp_event_post(GPS_LOG_EVENT,
-						   GPS_LOG_EVENT_GPS_NAV_MODE_CHANGED, 0, 0,
-						   pdMS_TO_TICKS(100)) != ESP_OK) {
-			WLOG(TAG, "EVT_FAIL: GPS_NAV_MODE_CHANGED");
-		}
-	}
-	// }
 
 	if (xSemaphoreTake(log_p_lctx.xMutex, 0) != pdTRUE)
 		return ESP_FAIL;
