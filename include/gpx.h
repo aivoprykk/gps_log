@@ -33,12 +33,10 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#define GPX_HEADER 0
-#define GPX_FRAME 1
-#define GPX_END 2
-
 struct gps_context_s;
-void log_GPX(struct gps_context_s *context, int part);
+void log_header_GPX(struct gps_context_s *context);
+void log_GPX(struct gps_context_s *context);
+void log_footer_GPX(struct gps_context_s *context);
 
 #ifdef __cplusplus
 }

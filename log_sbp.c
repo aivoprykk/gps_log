@@ -3,7 +3,6 @@
 #if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
 
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/unistd.h>
@@ -12,6 +11,7 @@
 #include "ubx_msg.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
+#include "strbf.h"
 #include "ubx.h"
 
 //static const char* TAG = "sbp";
@@ -19,13 +19,16 @@
 
 /* Locosys SBP structures */
 
+#define SBP_HEADER_USER_NAME       "ESP-GPS"
+#define SBP_HEADER_MAX_FW_LEN      13U
+
 struct SBP_Header sbp_header = {
-    .Text_length = 30,  // byte 0-1 : nr of meaningfull bytes in header (MID_FILE_ID)
+    .Text_length = 0,   // set from actual identity length before writing
     .Id1 = 0xa0,        // seems to be necessary so that GP3S accept .sbp
     .Id2 = 0xa2,        // seems to be necessary so that GP3S accept .sbp
-    .Again_length = 30,
+    .Again_length = 0,
     .Start = 0xfd,
-    .Identity = "ESP-GPS,0,unknown,unknown"};
+    .Identity = ""};
 
 struct SBP_frame sbp_frame = {
     .HDOP = 0,                 /* HDOP [0..51] with resolution 0.2 */
@@ -43,9 +46,37 @@ struct SBP_frame sbp_frame = {
     .vsdop = 0};
 
 void log_header_SBP(struct gps_context_s * context) {
+    const char *firmware_version = "unknown";
+    uint8_t log_rate = 0;
+    strbf_t sb;
+
     if (NOSBP)
         return;
-    for (uint8_t i = 32; i < 64; i++) {
+    if (context && context->SW_version && context->SW_version[0] != '\0') {
+        firmware_version = context->SW_version;
+    }
+    log_rate = g_rtc_config.ubx.output_rate;
+
+    memset(sbp_header.Identity, 0, sizeof(sbp_header.Identity));
+    strbf_inits(&sb, sbp_header.Identity, sizeof(sbp_header.Identity));
+    strbf_puts(&sb, SBP_HEADER_USER_NAME);
+    strbf_putc(&sb, ',');
+    if (context && context->mac_address) {
+        strbf_put_hex_u8(&sb, context->mac_address[2]);
+        strbf_put_hex_u8(&sb, context->mac_address[3]);
+        strbf_put_hex_u8(&sb, context->mac_address[4]);
+        strbf_put_hex_u8(&sb, context->mac_address[5]);
+    } else {
+        strbf_puts(&sb, "00000000");
+    }
+    strbf_putc(&sb, ',');
+    strbf_putul(&sb, log_rate);
+    strbf_putc(&sb, ',');
+    strbf_put(&sb, firmware_version,
+              strnlen(firmware_version, SBP_HEADER_MAX_FW_LEN));
+    sbp_header.Text_length = (uint16_t)(sb.cur - sb.start);
+    sbp_header.Again_length = sbp_header.Text_length;
+    for (uint8_t i = (uint8_t)(7U + sbp_header.Text_length); i < 64U; i++) {
         ((uint8_t*)(&sbp_header))[i] = 0xFF;
     }  // fill with 0xFF
     WRITESBP(&sbp_header, 64 * sizeof(uint8_t));
@@ -60,8 +91,9 @@ void log_SBP(struct gps_context_s * context) {
     uint8_t month = ubxMessage->navPvt.month;
     uint8_t day = ubxMessage->navPvt.day;
     uint8_t hour = ubxMessage->navPvt.hour;
-    uint16_t min = ubxMessage->navPvt.minute;
-    uint16_t sec = ubxMessage->navPvt.second;
+    uint8_t minute = ubxMessage->navPvt.minute;
+    uint8_t second = ubxMessage->navPvt.second;
+    int32_t utc_ms = c_nano_to_millis_round(ubxMessage->navPvt.nano);
     uint32_t numSV = 0xFFFFFFFF;
     uint32_t HDOP = (ubxMessage->navDOP.hDOP + 1) / 20;  // from 0.01 resolution to 0.2 ,reformat pDOP to HDOP 8-bit !!
     if (HDOP > 255)
@@ -72,8 +104,12 @@ void log_SBP(struct gps_context_s * context) {
     uint32_t vsdop = ubxMessage->navPvt.vAcc / 10;  // was headingAcc ???
     if (vsdop > 255)
         vsdop = 255;
-    sbp_frame.UtcSec = ubxMessage->navPvt.second * 1000 + (ubxMessage->navPvt.nano + 500000) / 1000000;  // om af te ronden
-    sbp_frame.date_time_UTC_packed = (((year - 2000) * 12 + month) << 22) + (day << 17) + (hour << 12) + (min << 6) + sec;
+    c_normalize_utc_fields(&year, &month, &day, &hour, &minute, &second,
+                           &utc_ms, 1000U);
+    sbp_frame.UtcSec = (uint16_t)((second * 1000U) + (uint32_t)utc_ms);
+    sbp_frame.date_time_UTC_packed = (((year - 2000) * 12 + month) << 22) +
+                                     (day << 17) + (hour << 12) +
+                                     (minute << 6) + second;
     sbp_frame.Lat = ubxMessage->navPvt.lat;
     sbp_frame.Lon = ubxMessage->navPvt.lon;
     sbp_frame.AltCM = ubxMessage->navPvt.hMSL / 10;     // omrekenen naar cm/s

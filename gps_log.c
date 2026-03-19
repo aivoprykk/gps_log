@@ -274,17 +274,26 @@ static esp_err_t set_time(nav_pvt_t *nav_pvt, float time_offset) {
 #endif
 	tzset(); // this works for CET, but TZ string is different for every Land /
 			 // continent....
+	uint32_t gps_year = nav_pvt->year;
+	uint8_t gps_month = nav_pvt->month;
+	uint8_t gps_day = nav_pvt->day;
+	uint8_t gps_hour = nav_pvt->hour;
+	uint8_t gps_minute = nav_pvt->minute;
+	uint8_t gps_second = nav_pvt->second;
+	int32_t gps_usec = c_nano_to_us_round(nav_pvt->nano);
+	c_normalize_utc_fields(&gps_year, &gps_month, &gps_day, &gps_hour,
+				      &gps_minute, &gps_second, &gps_usec, 1000000U);
 	struct tm my_time = {
-		.tm_sec = nav_pvt->second,
-		.tm_min = nav_pvt->minute,
-		.tm_hour = nav_pvt->hour,
-		.tm_mday = nav_pvt->day,
-		.tm_mon = nav_pvt->month - 1, // mktime needs months 0 - 11
-		.tm_year = nav_pvt->year -
+		.tm_sec = gps_second,
+		.tm_min = gps_minute,
+		.tm_hour = gps_hour,
+		.tm_mday = gps_day,
+		.tm_mon = gps_month - 1, // mktime needs months 0 - 11
+		.tm_year = gps_year -
 				   1900, // mktime needs years since 1900, so deduct 1900
 		.tm_isdst = -1,	 // daylight saving time flag
 	};
-	int ret = c_set_time(&my_time, NANO_TO_US_ROUND(nav_pvt->nano),
+	int ret = c_set_time(&my_time, (uint32_t)gps_usec,
 						 time_offset); // set the time in the struct tm
 	if (ret) {
 		ELOG(TAG, "[%s] Failed to set time from gps", __FUNCTION__);

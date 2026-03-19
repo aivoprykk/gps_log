@@ -2,7 +2,6 @@
 #include "log_private.h"
 #if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
 #if defined(CONFIG_GPS_LOG_GPY)
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/unistd.h>
@@ -12,6 +11,7 @@
 #include <esp_mac.h>
 
 #include "gpy.h"
+#include "strbf.h"
 #include "ubx.h"
 #include "gps_log_file.h"
 #include "gps_data.h"
@@ -23,15 +23,18 @@
 
 //extern struct UBXMessage ubxMessage;
 
+#define GPY_HEADER_DEVICE_DESCRIPTION "ESP-GPS"
+#define GPY_HEADER_DEVICE_NAME        "ESP-GPS"
+
 struct GPY_Header gpy_header = {
     .Type_identifier = 0xF0,  // Frame identifier, header = 0xF0
     .Flags = 0,
     .Length = 72,     // length = 6 + 4 * STRING_IO_LENGTH + 2 = 72
     .DeviceType = 2,  // ublox = 2
-    .deviceDescription = "ESP-GPS",
-    .deviceName = "Boom",
-    .serialNumber = "macAddr",
-    .firmwareVersion = "SW_version",
+    .deviceDescription = "",
+    .deviceName = "",
+    .serialNumber = "",
+    .firmwareVersion = "",
     .Checksum = 0};
 
 struct GPY_Frame gpy_frame = {
@@ -89,12 +92,38 @@ time_t tmConvert_t(int YYYY, byte MM, byte DD, byte hh, byte mm, byte ss)
 }
 */
 void log_GPY_Header(const struct gps_context_s *context) {
+    const char *firmware_version = "unknown";
+    strbf_t sb;
+
     if(NOGPY)
         return;
-    for (int i = 0; i < 16; i++) {
-        gpy_header.firmwareVersion[i] = context->SW_version[i];
+    memset(gpy_header.deviceDescription, 0, sizeof(gpy_header.deviceDescription));
+    memset(gpy_header.deviceName, 0, sizeof(gpy_header.deviceName));
+    memset(gpy_header.serialNumber, 0, sizeof(gpy_header.serialNumber));
+    memset(gpy_header.firmwareVersion, 0, sizeof(gpy_header.firmwareVersion));
+
+    strbf_inits(&sb, gpy_header.deviceDescription,
+                sizeof(gpy_header.deviceDescription));
+    strbf_puts(&sb, GPY_HEADER_DEVICE_DESCRIPTION);
+    strbf_inits(&sb, gpy_header.deviceName, sizeof(gpy_header.deviceName));
+    strbf_puts(&sb, GPY_HEADER_DEVICE_NAME);
+    if (context && context->SW_version && context->SW_version[0] != '\0') {
+        firmware_version = context->SW_version;
     }
-    sprintf(gpy_header.serialNumber, "%02x%02x%02x%02x%02x%02x", MAC2STR(context->mac_address));
+    strbf_inits(&sb, gpy_header.firmwareVersion,
+                sizeof(gpy_header.firmwareVersion));
+    strbf_put(&sb, firmware_version,
+              strnlen(firmware_version,
+                      sizeof(gpy_header.firmwareVersion) - 1U));
+    if (context && context->mac_address) {
+        strbf_inits(&sb, gpy_header.serialNumber, sizeof(gpy_header.serialNumber));
+        for (uint8_t i = 0; i < 6; ++i) {
+            strbf_put_hex_u8(&sb, context->mac_address[i]);
+        }
+    } else {
+        strbf_inits(&sb, gpy_header.serialNumber, sizeof(gpy_header.serialNumber));
+        strbf_puts(&sb, "000000000000");
+    }
     Fletcher16((uint8_t *)&gpy_header, 72);
     WRITEGPY(&gpy_header, 72 * sizeof(uint8_t));
 }
@@ -106,17 +135,26 @@ void log_GPY(struct gps_context_s *context) {
     // !!!!!
     const ubx_msg_t * ubxMessage = &context->ubx_device->ubx_msg;
     time_t utc_Sec;
-    struct tm frame_time;  // time elements structure
-    frame_time.tm_sec = ubxMessage->navPvt.second;
-    frame_time.tm_hour = ubxMessage->navPvt.hour;
-    frame_time.tm_min = ubxMessage->navPvt.minute;
-    frame_time.tm_mday = ubxMessage->navPvt.day;
-    frame_time.tm_mon = ubxMessage->navPvt.month - 1;  // month 0 - 11 with
-                                                      // mktime
-    frame_time.tm_year = ubxMessage->navPvt.year - 1900;  // years since 1900, so deduct 1900
+    uint32_t gps_year = ubxMessage->navPvt.year;
+    uint8_t gps_month = ubxMessage->navPvt.month;
+    uint8_t gps_day = ubxMessage->navPvt.day;
+    uint8_t gps_hour = ubxMessage->navPvt.hour;
+    uint8_t gps_minute = ubxMessage->navPvt.minute;
+    uint8_t gps_second = ubxMessage->navPvt.second;
+    int32_t gps_millis = c_nano_to_millis_round(ubxMessage->navPvt.nano);
+    struct tm frame_time = {0};  // time elements structure
+
+    c_normalize_utc_fields(&gps_year, &gps_month, &gps_day, &gps_hour,
+                           &gps_minute, &gps_second, &gps_millis, 1000U);
+    frame_time.tm_sec = gps_second;
+    frame_time.tm_hour = gps_hour;
+    frame_time.tm_min = gps_minute;
+    frame_time.tm_mday = gps_day;
+    frame_time.tm_mon = gps_month - 1;  // month 0 - 11 with mktime
+    frame_time.tm_year = gps_year - 1900;  // years since 1900, so deduct 1900
     frame_time.tm_isdst = 0;            // No daylight saving
     utc_Sec = mktime(&frame_time);  // mktime returns local time, so TZ is important !!!
-    int64_t utc_ms = utc_Sec * 1000LL + (ubxMessage->navPvt.nano + 500000) / 1000000LL;
+    int64_t utc_ms = utc_Sec * 1000LL + gps_millis;
 
     // calcultation of delta values
     int delta_time = utc_ms - gpy_frame.Unix_time;                 // ms

@@ -74,7 +74,7 @@ inline float spd_threshold_for_alfa(int rate) {
 #define TIME_DELAY_FIRST_FIX 10        // 10 navpvt messages before start logging
 
 #define SPEED_DETECTION_MIN 4000       // min average speed over 2s for new run detection (mm/s)
-#define STANDSTILL_DETECTION_MAX  1000 // max average speed over 2s voor stand still detection (mm/s)
+#define STANDSTILL_DETECTION_MAX  600 // max average speed over 2s voor stand still detection 600mm/s = 2.16 km/h
 
 #define MEAN_HEADING_TIME 15         // time in sec for calculating average heading
 #define STRAIGHT_COURSE_MAX_DEV 10   // max angle deviation for straight ahead recognition (degrees)

@@ -670,6 +670,33 @@ size_t log_write(const struct gps_context_s * context, uint8_t file, const void 
     return result;
 }
 
+static void write_log_file_header_if_empty(gps_context_t *context,
+                                           uint8_t file_index) {
+    struct stat file_stat = {0};
+    int fd = GET_FD(file_index);
+
+    if (!context || fd < 0) {
+        return;
+    }
+
+    if (fstat(fd, &file_stat) != 0 || file_stat.st_size > 0) {
+        return;
+    }
+
+    if (file_index == sd_log_sbp) {
+        log_header_SBP(context);
+    }
+#if defined(GPS_LOG_ENABLE_GPY)
+    else if (file_index == sd_log_gpy) {
+        log_header_GPY(context);
+    }
+#endif
+    else if (file_index == sd_log_gpx) {
+        log_header_GPX(context);
+    }
+
+}
+
 /**
  * @brief Close file (async close + flush)
  */
@@ -935,6 +962,8 @@ void open_files(gps_context_t *context) {
             GET_FD(i) = s_open(config->filenames[i], config->base_path, FILE_APPEND);
             if(GET_FD(i) < 0) {
                 open_failed++;
+            } else {
+                write_log_file_header_if_empty(context, i);
             }
 #endif
         }
@@ -974,7 +1003,7 @@ void close_files(gps_context_t *context) {
     for (int i = 0, j = sd_log_end; i < j; ++i) {
         if (GET_FD(i) >= 0) {
             if (i == sd_log_gpx) {
-                log_GPX(context, GPX_END);
+                log_footer_GPX(context);
             }
             log_close(context, i);
             GET_FD(i) = -1;
@@ -1073,7 +1102,7 @@ void log_to_file(gps_context_t *context) {
         log_SBP(context);
     }
     if (enables.bits.log_gpx) {
-        log_GPX(context, GPX_FRAME);
+        log_GPX(context);
     }
 }
 
@@ -1118,8 +1147,8 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_puts(&sb, tekst);
     strbf_puts(&sb, "\n");
     strbf_puts(&sb, "GPS Logger: ");
-    semVerStr(tekst, 0);
-    strbf_puts(&sb, tekst);
+    const uint16_t size = semVerStr(tekst, 0);
+    strbf_put(&sb, tekst, size);
     strbf_puts(&sb, "\n");
     strbf_puts(&sb, "First fix : ");
     strbf_putn(&sb, MS_TO_SEC(gps->first_fix));

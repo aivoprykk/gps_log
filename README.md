@@ -74,11 +74,6 @@ Configure via `idf.py menuconfig`:
 - **GPS_LOG_ENABLE_GPY**: Enable GPY format logging
 - **GPS_SPEED_ERROR_LOGGING**: Enable detailed speed error logging
 
-### JSON Library Selection
-Choose between:
-- **CCAN JSON**: Lightweight JSON library (default)
-- **CJSON**: Full-featured JSON library
-
 ## Usage
 
 ### Basic Initialization
@@ -309,7 +304,7 @@ Configure via Kconfig:
 ## Hardware Compatibility
 
 ### GPS Modules
-- u-blox NEO-M8N, NEO-M8P, etc.
+- u-blox M8, M9, M10
 - Any UART-based GPS receiver with NMEA/UBX support
 
 ### Storage
