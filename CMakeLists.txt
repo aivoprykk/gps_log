@@ -2,13 +2,21 @@ SET(SRCS
     gps_data.c
     gps_log_file.c
     log_gpx.c
-    log_gpy.c
     log_sbp.c
     log_ubx.c
     dstat_screens.c
     gps_log.c
     gps_speed_data.c
     gps_satellite_data.c)
+
+if(CONFIG_GPS_LOG_ENABLE_GPY)
+    list(APPEND SRCS log_gpy.c)
+endif()
+
+if(CONFIG_GPS_LOG_ENABLE_OAO)
+    list(APPEND SRCS log_oao.c)
+endif()
+
 SET(INCLUDE include)
 idf_component_register(
     SRCS ${SRCS}

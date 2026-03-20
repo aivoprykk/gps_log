@@ -37,6 +37,11 @@ menu "Logger GPS Log Module Configuration"
         default n
         help
         Enable GPY Log Message Format
+    config GPS_LOG_ENABLE_OAO
+        bool "Enable OAO Log Message Format"
+        default n
+        help
+        Enable Motion OAO GNSS log format support.
     config GPS_SPEED_ERROR_LOGGING
         bool "Enable GPS Speed Metrics Error Logging to TXT files"
         default n

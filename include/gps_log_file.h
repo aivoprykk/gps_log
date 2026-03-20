@@ -25,12 +25,18 @@ extern "C" {
 #define ENUM_A(a) sd_ ## a,
 
 /// copy from config_gps.h
-#if defined (CONFIG_GPS_LOG_GPY)
+#if defined(GPS_LOG_HAS_OAO)
+#define CFG_GPS_OPTIONAL_OAO_FILE_ITEMS_LL(l) l(log_oao)
+#else
+#define CFG_GPS_OPTIONAL_OAO_FILE_ITEMS_LL(l)
+#endif
+
+#if defined(GPS_LOG_HAS_GPY)
 #define CFG_GPS_USER_FILE_ITEMS_LL(l) l(log_gpy)
 #else
 #define CFG_GPS_USER_FILE_ITEMS_LL(l)
 #endif
-#define CFG_GPS_FILE_ITEMS(l) l(log_txt) l(log_sbp) l(log_ubx) l(log_gpx) CFG_GPS_USER_FILE_ITEMS_LL(l)
+#define CFG_GPS_FILE_ITEMS(l) l(log_txt) l(log_sbp) l(log_ubx) l(log_gpx) CFG_GPS_OPTIONAL_OAO_FILE_ITEMS_LL(l) CFG_GPS_USER_FILE_ITEMS_LL(l)
 /// end copy from config_gps.h
 
 #define SD_FILE_DEFAULT_CONFIG { CFG_GPS_FILE_ITEMS(VAL_A) }

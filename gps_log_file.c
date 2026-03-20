@@ -24,8 +24,11 @@
 #include "numstr.h"
 #include "ubx.h"
 #include "gpx.h"
+#if defined(GPS_LOG_HAS_OAO)
+#include "oao.h"
+#endif
 #include "sbp.h"
-#ifdef GPS_LOG_ENABLE_GPY
+#if defined(GPS_LOG_HAS_GPY)
 #include "gpy.h"
 #endif
 #include "vfs.h"
@@ -39,7 +42,6 @@
 static const char *TAG = "gps_log";
 
 // ============================================================================
-// ASYNC WRITER - FAT-optimized file I/O with sector-aligned buffering
 // ============================================================================
 
 // Buffer size matches FAT sector size from sdkconfig for optimal write performance
@@ -93,7 +95,7 @@ typedef struct {
 
 static QueueHandle_t async_writer_queue = NULL;
 static TaskHandle_t async_writer_task_handle = NULL;
-static file_write_buffer_t file_buffers[sd_log_end] = {0}; // Max 5 file types (UBX, SBP, GPX, GPY, TXT)
+static file_write_buffer_t file_buffers[sd_log_end] = {0}; // Max 6 file types (UBX, SBP, GPX, OAO, GPY, TXT)
 static atomic_bool async_writer_running = false;
 
 // Pool storage - dynamically allocated on init, freed on stop; lifecycle managed by logger_fixed_pool
@@ -686,7 +688,7 @@ static void write_log_file_header_if_empty(gps_context_t *context,
     if (file_index == sd_log_sbp) {
         log_header_SBP(context);
     }
-#if defined(GPS_LOG_ENABLE_GPY)
+#if defined(GPS_LOG_HAS_GPY)
     else if (file_index == sd_log_gpy) {
         log_header_GPY(context);
     }
@@ -694,6 +696,11 @@ static void write_log_file_header_if_empty(gps_context_t *context,
     else if (file_index == sd_log_gpx) {
         log_header_GPX(context);
     }
+#if defined(GPS_LOG_HAS_OAO)
+    else if (file_index == sd_log_oao) {
+        log_header_OAO(context);
+    }
+#endif
 
 }
 
@@ -950,11 +957,16 @@ void open_files(gps_context_t *context) {
     for(uint8_t i = 0; i < sd_log_end; i++) {
         FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
         if (enables->value & (1 << i)) {
-            fn = 
-#if defined(GPS_LOG_ENABLE_GPY)
-            i == sd_log_gpy ? ".gpy" : 
+            fn = i == sd_log_ubx ? ".ubx"
+                : i == sd_log_sbp ? ".sbp"
+                : i == sd_log_gpx ? ".gpx"
+#if defined(GPS_LOG_HAS_OAO)
+                : i == sd_log_oao ? ".oao"
 #endif
-            i == sd_log_ubx ? ".ubx" : i == sd_log_sbp ? ".sbp" : i == sd_log_gpx ? ".gpx" : ".txt";
+#if defined(GPS_LOG_HAS_GPY)
+                : i == sd_log_gpy ? ".gpy"
+#endif
+                : ".txt";
             strcpy(config->filenames[i], config->filename_base);
             strcat(config->filenames[i], fn);
             FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
@@ -1030,7 +1042,7 @@ void flush_files(const gps_context_t *context) {
         if (load_balance == 1) {
             log_fsync(context, sd_log_txt);
         }
-#ifdef GPS_LOG_ENABLE_GPY
+#if defined(GPS_LOG_HAS_GPY)
         if (load_balance == 2) {
             log_fsync(context, sd_og_gpy);
         }
@@ -1040,8 +1052,17 @@ void flush_files(const gps_context_t *context) {
         }
         if (load_balance == 4) {
             log_fsync(context, sd_log_gpx);
+        }
+#if defined(GPS_LOG_HAS_OAO)
+        if (load_balance == 5) {
+            log_fsync(context, sd_log_oao);
             load_balance = -1;
         }
+#else
+        if (load_balance == 4) {
+            load_balance = -1;
+        }
+#endif
         load_balance++;
     }
 }
@@ -1093,7 +1114,7 @@ void log_to_file(gps_context_t *context) {
     if (enables.bits.log_ubx) {
         log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
     }
-#ifdef GPS_LOG_ENABLE_GPY
+#if defined(GPS_LOG_HAS_GPY)
     if (enables.bits.log_gpy) {
         log_GPY(context);
     }
@@ -1104,6 +1125,11 @@ void log_to_file(gps_context_t *context) {
     if (enables.bits.log_gpx) {
         log_GPX(context);
     }
+#if defined(GPS_LOG_HAS_OAO)
+    if (enables.bits.log_oao) {
+        log_OAO(context);
+    }
+#endif
 }
 
 // Prints the content of a file to the Serial

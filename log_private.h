@@ -24,7 +24,10 @@ struct gps_context_s;
 extern struct gps_context_s * gps;
 extern uint32_t buffer_caps;
 #define NOGPX (log_get_fd((context), sd_log_gpx)==-1)
-#if defined (CONFIG_GPS_LOG_GPY)
+#if defined(GPS_LOG_HAS_OAO)
+#define NOOAO (log_get_fd((context), sd_log_oao)==-1)
+#endif
+#if defined(GPS_LOG_HAS_GPY)
 #define NOGPY (log_get_fd((context), sd_log_gpy)==-1)
 #endif
 #define NOUBX (log_get_fd((context), sd_log_ubx)==-1)
@@ -32,7 +35,10 @@ extern uint32_t buffer_caps;
 #define NOTXT (log_get_fd((context), sd_log_txt)==-1)
 
 #define WRITEGPX(msg, len) log_write((gps), sd_log_gpx, (msg), (len))
-#if defined (CONFIG_GPS_LOG_GPY)
+#if defined(GPS_LOG_HAS_OAO)
+#define WRITEOAO(msg, len) log_write((gps), sd_log_oao, (msg), (len))
+#endif
+#if defined(GPS_LOG_HAS_GPY)
 #define WRITEGPY(msg, len) log_write((gps), sd_log_gpy, (msg), (len))
 #endif
 #define WRITEUBX(msg, len) log_write((gps), sd_log_ubx, (msg), (len))
@@ -165,8 +171,11 @@ inline bool gps_log_file_bits_check(cfg_gps_log_enables_t *enables) {
     return (
             enables->bits.log_ubx
             || enables->bits.log_sbp
-#if defined (GPS_LOG_ENABLE_GPY)
+#if defined(GPS_LOG_HAS_GPY)
             || enables->bits.log_gpy
+#endif
+#if defined(GPS_LOG_HAS_OAO)
+            || enables->bits.log_oao
 #endif
             || enables->bits.log_gpx
         );

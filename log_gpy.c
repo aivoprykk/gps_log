@@ -1,7 +1,6 @@
 
 #include "log_private.h"
-#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED))
-#if defined(CONFIG_GPS_LOG_GPY)
+#if (defined(CONFIG_UBLOX_ENABLED) && defined(CONFIG_GPS_LOG_ENABLED) && defined(GPS_LOG_HAS_GPY))
 #include <stdlib.h>
 #include <string.h>
 #include <sys/unistd.h>
@@ -215,5 +214,4 @@ void log_GPY(struct gps_context_s *context) {
     }
 }
 
-#endif
 #endif
