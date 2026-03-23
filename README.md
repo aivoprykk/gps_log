@@ -2,6 +2,8 @@
 
 A comprehensive GPS logging and data processing module for ESP32-based GPS tracking devices, providing multi-format logging, real-time data analysis, and file management capabilities.
 
+For a decision-oriented comparison of `UBX`, `GPY`, `SBP`, `OAO`, `GPX`, and `TXT`, see [FORMAT_COMPARISON.md](FORMAT_COMPARISON.md).
+
 ## Features
 
 ### GPS Data Processing
@@ -16,6 +18,7 @@ A comprehensive GPS logging and data processing module for ESP32-based GPS track
 - **UBX Format**: Raw u-blox binary messages for detailed analysis
 - **SBP Format**: Swift Navigation Binary Protocol format
 - **GPX Format**: GPS Exchange Format for mapping applications
+- **OAO Format**: Optional Motion-style GNSS frame format with rich accuracy fields
 - **GPY Format**: Custom binary format for high-performance logging
 
 ### File Management
@@ -65,6 +68,8 @@ lib_deps =
 
 ### Kconfig Options
 Configure via `idf.py menuconfig`:
+
+For guidance on which formats to enable together, see [FORMAT_COMPARISON.md](FORMAT_COMPARISON.md).
 
 - **GPS_LOG_ENABLED**: Enable/disable GPS logging module
 - **GPS_BUFFER_SIZE**: Ground speed buffer size (default 5128)
@@ -241,8 +246,51 @@ Raw u-blox binary messages for detailed analysis and replay.
 ### SBP Format
 Swift Navigation Binary Protocol for high-precision applications.
 
+### OAO Format
+Optional fixed-size binary GNSS frame format with UTC milliseconds and accuracy fields.
+
 ### GPY Format
-Custom binary format optimized for ESP32 storage and processing.
+Binary format originating from RP6conrad's ESP-GPS-Logger and adapted here in a derivative implementation.
+
+## Format Comparison
+
+Detailed per-format analysis is available in `FORMAT_COMPARISON.md` in this directory.
+
+Short version:
+
+| Format | Best for | Main tradeoff |
+| --- | --- | --- |
+| `UBX` | Exact archival and protocol debugging | Largest files |
+| `GPY` | Compact high-fidelity performance logging | No altitude field in the current frame |
+| `SBP` | Legacy GPS speed tool compatibility | Quantized and reduced metadata |
+| `OAO` | Rich per-frame accuracy metadata | Larger than GPY and less broadly useful than UBX |
+| `GPX` | Mapping and route export | Current writer is effectively `1 Hz` |
+| `TXT` | Manual inspection | Inefficient and low fidelity |
+
+### Default Recommendation For Windsurf Speed Logging
+
+For this project, the default recommended logging set for windsurf speed work is:
+
+| Priority | Recommended format set | Reason |
+| --- | --- | --- |
+| Best default | `GPY` | Compact, millisecond GNSS time, exact speed/position fields for session metrics |
+| Safer development setup | `UBX` + `GPY` | Keep raw receiver truth while validating GPY and analyzers |
+| Legacy interoperability | `SBP` + `GPY` | Export to older tooling without giving up the higher-fidelity derivative GPY format |
+| Shareable route export | `GPY` + `GPX` | Keep analysis-grade data plus easy map import |
+
+Why `GPY` is the default here:
+
+- It keeps GNSS-derived UTC milliseconds.
+- It stays much smaller than `UBX`.
+- It preserves exact speed fields needed for offline speed metrics better than `SBP`.
+- It is more aligned with this codebase than `OAO` for compact day-to-day performance logging.
+
+### Offline Tooling Support
+
+The repository Python tooling under `scripts/` supports all current analysis paths:
+
+- `gps_log_analyzer.py`: `SBP`, `UBX`, `GPX`, `OAO`, `GPY`
+- `gps_session_metrics.py`: `SBP`, `UBX`, `GPX`, `OAO`, `GPY`
 
 ## Performance Considerations
 
