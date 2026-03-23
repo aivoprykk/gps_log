@@ -1,6 +1,6 @@
 #include "log_private.h"
 #include "gps_speed_data.h"
-// #include "ubx.h"
+#include "ubx.h"
 #include <math.h>
 #include <stdarg.h>
 // #include "logger_buffer_pool.h"
@@ -166,7 +166,7 @@ static const gps_speed_metrics_cfg_t initial_speed_metrics_sets[] = {
 
 static inline uint32_t convert_distance_to_mm(int distance) {
     // Use original macro logic to ensure identical behavior
-    return M_TO_MM(distance) * g_rtc_config.ubx.output_rate;
+    return M_TO_MM(distance) * ubx_get_effective_output_rate();
 }
 
 static inline gps_speed_t * gps_select_speed_instance(int num, uint8_t flags) {
@@ -943,7 +943,7 @@ static inline bool store_avg_speed_by_time_optimized(struct gps_speed_by_time_s 
 
 float update_speed_by_time(struct gps_speed_by_time_s *me) {
     if(!me) return 0.0f;
-    const uint8_t sample_rate = g_rtc_config.ubx.output_rate;
+    const uint8_t sample_rate = ubx_get_effective_output_rate();
     // uint32_t actual_run = gps->run_count;
     const uint32_t time_window_delta = me->time_window * sample_rate;
     if(store_avg_speed_by_time_optimized(me, time_window_delta, sample_rate))
@@ -1237,7 +1237,7 @@ static inline bool detect_jibe(float heading_diff) {
 uint32_t new_run_detection(gps_context_t *context, float actual_heading, float S2_speed) {
     // printf("[%s]\n", __func__);
     if(!context) return 0;  // return 0 if context is NULL
-    const uint8_t sample_rate = g_rtc_config.ubx.output_rate;
+    const uint8_t sample_rate = ubx_get_effective_output_rate();
 
     log_p_lctx.heading = unwrap_heading_optimized(actual_heading, &log_p_lctx.old_heading, &log_p_lctx.delta_heading);    
 
@@ -1314,7 +1314,8 @@ float alfa_indicator(float actual_heading) {
     gps_point_t cur = { log_p_lctx.alfa_buf[idx_cur].latitude, log_p_lctx.alfa_buf[idx_cur].longitude};
 
     // Position 2 seconds ago
-    int32_t idx_prev = al_buf_index(log_p_lctx.index_gspeed - (2 * g_rtc_config.ubx.output_rate));
+    int32_t idx_prev =
+        al_buf_index(log_p_lctx.index_gspeed - (2 * ubx_get_effective_output_rate()));
     gps_point_t prev = {log_p_lctx.alfa_buf[idx_prev].latitude, log_p_lctx.alfa_buf[idx_prev].longitude};
 
     gps->alfa_exit = point_to_line_distance_optimized(&log_p_lctx.alfa_p1, &cur, &prev); // turn-250m point distance to line {cur,cur-2sec}

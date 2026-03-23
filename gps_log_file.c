@@ -1035,7 +1035,7 @@ void flush_files(const gps_context_t *context) {
     if (!context->files_opened) {
         return;
     }
-    if (g_rtc_config.ubx.output_rate <= 10) {
+    if (ubx_get_effective_output_rate() <= 10) {
         if (load_balance == 0) {
             log_fsync(context, sd_log_ubx);
         }
@@ -1044,7 +1044,7 @@ void flush_files(const gps_context_t *context) {
         }
 #if defined(GPS_LOG_HAS_GPY)
         if (load_balance == 2) {
-            log_fsync(context, sd_og_gpy);
+            log_fsync(context, sd_log_gpy);
         }
 #endif
         if (load_balance == 3) {
@@ -1112,7 +1112,7 @@ void log_to_file(gps_context_t *context) {
     // Log data in all enabled formats (consolidated bit checks)
     cfg_gps_log_enables_t enables = g_rtc_config.gps.log_enables;
     if (enables.bits.log_ubx) {
-        log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.msgout_sat);
+        log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.log_sat_details);
     }
 #if defined(GPS_LOG_HAS_GPY)
     if (enables.bits.log_gpy) {
@@ -1187,7 +1187,7 @@ static void session_info(const gps_context_t *context, struct gps_data_s *G) {
     strbf_putn(&sb, MM_TO_M(G->total_distance));
     strbf_puts(&sb, " m\n");
     strbf_puts(&sb, "Sample rate : ");
-    strbf_putn(&sb, g_rtc_config.ubx.output_rate);
+    strbf_putn(&sb, ubx_get_effective_output_rate());
     strbf_puts(&sb, " Hz\n");
     strbf_puts(&sb, "Speed units: ");
     strbf_puts(&sb, get_speed_unit_str(g_rtc_config.gps.speed_unit));
@@ -1327,7 +1327,7 @@ static void fmt_result_dist(gps_metrics_ctx_t *ctx, void *arg) {
         time_to_char_hms((int)run->time.hour, (int)run->time.minute, (int)run->time.second, tekst);
         strbf_puts(sb, tekst);
         strbf_puts(sb, " Distance: ");
-        f2_to_char(get_distance_m(run->data.dist.dist, g_rtc_config.ubx.output_rate), tekst);
+        f2_to_char(get_distance_m(run->data.dist.dist, ubx_get_effective_output_rate()), tekst);
         strbf_puts(sb, tekst);
         strbf_puts(sb, " Msg_nr: ");
         strbf_putl(sb, run->data.dist.message_nr);
@@ -1364,7 +1364,7 @@ static void fmt_result_time(gps_metrics_ctx_t *ctx, void *arg) {
         strbf_putl(sb, run->nr);
         strbf_puts(sb, unit);
         strbf_putl(sb, me->time_window);
-        if (g_rtc_config.ubx.msgout_sat) {
+        if (g_rtc_config.ubx.log_sat_details) {
             strbf_sprintf(sb, " CNO Max: %zu Avg: %zu Min: %zu nr Sat: %zu",
                 run->data.time.Max_cno, run->data.time.Mean_cno,
                 run->data.time.Min_cno, run->data.time.Mean_numSat);
@@ -1393,7 +1393,7 @@ static void fmt_result_alfa(gps_metrics_ctx_t *ctx, void *arg) {
         f2_to_char(sqrt((float)run->data.alfa.real_distance), tekst);
         strbf_puts(sb, tekst);
         strbf_puts(sb, " m ");
-        strbf_putl(sb, get_distance_m(run->data.alfa.dist, g_rtc_config.ubx.output_rate));
+        strbf_putl(sb, get_distance_m(run->data.alfa.dist, ubx_get_effective_output_rate()));
         strbf_puts(sb, " m ");
         time_to_char_hms((int)run->time.hour, (int)run->time.minute, (int)run->time.second, tekst);
         strbf_puts(sb, tekst);

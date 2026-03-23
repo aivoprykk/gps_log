@@ -34,7 +34,7 @@ menu "Logger GPS Log Module Configuration"
         GPS Log Module Stack Size in bytes
     config GPS_LOG_ENABLE_GPY
         bool "Enable GPY Log Message Format"
-        default n
+        default y
         help
         Enable GPY Log Message Format
     config GPS_LOG_ENABLE_OAO

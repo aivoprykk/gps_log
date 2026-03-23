@@ -7,6 +7,10 @@ extern "C" {
 
 struct gps_context_s;
 
+/// !!! oao format write is not actually prohibited by owner
+/// https://www.motion-gps.com/motion/documentation/oao-file-format.html
+/// we just include this code in the gps_log component but this is not default enabled
+
 union __attribute__((__packed__)) OAO_Frame {
 
   struct {

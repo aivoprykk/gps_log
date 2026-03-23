@@ -55,7 +55,7 @@ void log_header_SBP(struct gps_context_s * context) {
     if (context && context->SW_version && context->SW_version[0] != '\0') {
         firmware_version = context->SW_version;
     }
-    log_rate = g_rtc_config.ubx.output_rate;
+    log_rate = ubx_get_effective_output_rate();
 
     memset(sbp_header.Identity, 0, sizeof(sbp_header.Identity));
     strbf_inits(&sb, sbp_header.Identity, sizeof(sbp_header.Identity));

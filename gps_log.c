@@ -76,7 +76,7 @@ void gps_log_print_all_stats(void *arg) {
 	prev_millis = millis;
 	prev_msg_stats = cur_msg_stats;
 
-	uint8_t expected_hz = g_rtc_config.ubx.output_rate;
+	uint8_t expected_hz = ubx_get_effective_output_rate();
 
 	// Print stats in order: UART RX → UBX Protocol → GPS Application
 	printf("\n");
@@ -364,7 +364,7 @@ static void gps_buffers_init(void) {
 	!defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
 static void gps_on_sample_rate_change(void *handler_arg, esp_event_base_t base,
 									  int32_t id, void *event_data) {
-	uint8_t new_rate = g_rtc_config.ubx.output_rate;
+	uint8_t new_rate = ubx_get_effective_output_rate();
 	FUNC_ENTRY_ARGS(TAG, "new rate:%d", new_rate);
 	// Resize alfa buffer if needed - check_and_alloc_buffer will reuse existing
 	// buffer if it's already large enough (e.g., 20Hz->5Hz keeps 20Hz buffer)
@@ -458,6 +458,7 @@ static void gpsTask(void *parameter) {
 	ubx_packet.msg_match_to_pos = false;
 	ubx_packet.msg_ready_handler = ubx_msg_checksum_handler;
 	ubx_msg_t *ubxMessage = &ubx_ctx->ubx_msg;
+	nav_pvt_t pvt_snapshot = {0};
 	uint8_t try_setup_times = 5;
 #if (C_LOG_LEVEL <= LOG_DEBUG_NUM || defined(GPS_TASK_DEBUG))
 	uint32_t loops = 0;
@@ -473,7 +474,7 @@ static void gpsTask(void *parameter) {
 			DLOG(TAG, "LOOP_ALIVE: l=%" PRIu32 " now=%" PRIu32 "", loops, now);
 		}
 #endif
-		if (!gps_has_version_set() || lctx.ubx_restart_requested) {
+		if (!ubx_ctx->ready || lctx.ubx_restart_requested) {
 			bool is_reconfig = lctx.ubx_restart_requested && ubx_ctx->ready;
 			if (is_reconfig) {
 				// Explicit reconfig: skip cooldown, restart immediately
@@ -496,7 +497,7 @@ static void gpsTask(void *parameter) {
 				}
 			}
 			if (lctx.ubx_fail_count > 50) {
-				if (!gps_has_version_set()) {
+				if (!ubx_ctx->ready) {
 					if (esp_event_post(GPS_LOG_EVENT,
 									   GPS_LOG_EVENT_GPS_REQUEST_RESTART, NULL,
 									   0, pdMS_TO_TICKS(100)) != ESP_OK) {
@@ -540,13 +541,13 @@ static void gpsTask(void *parameter) {
 		uint32_t timeout_ms;
 		if (!ubx_ctx->ready) {
 			timeout_ms = 50; // During init, use moderate timeout
-		} else if (g_rtc_config.ubx.output_rate >= 21) {
+		} else if (ubx_get_effective_output_rate() >= 21) {
 			timeout_ms = 5; // 21-30Hz: very responsive
-		} else if (g_rtc_config.ubx.output_rate >= 11) {
+		} else if (ubx_get_effective_output_rate() >= 11) {
 			timeout_ms = 10; // 11-20Hz: responsive
-		} else if (g_rtc_config.ubx.output_rate >= 6) {
+		} else if (ubx_get_effective_output_rate() >= 6) {
 			timeout_ms = 20; // 6-10Hz: balanced
-		} else if (g_rtc_config.ubx.output_rate >= 3) {
+		} else if (ubx_get_effective_output_rate() >= 3) {
 			timeout_ms = 50; // 3-5Hz: reduce wakeups
 		} else {
 			timeout_ms =
@@ -573,8 +574,6 @@ static void gpsTask(void *parameter) {
 		// CRITICAL: Copy NAV_PVT data immediately to protect from buffer
 		// overwrites The shared buffer (ubx_ctx->ubx_msg) is reused for every
 		// decoded message
-		nav_pvt_t pvt_snapshot; // Local copy of current NAV_PVT (protects from
-								// overwrites)
 		bool had_nav_dop = false; // Track NAV_DOP for first fix detection
 		int iterations = 0;
 
@@ -648,7 +647,7 @@ static void gpsTask(void *parameter) {
 					// Request file open when conditions met
 					if (!gps->files_opened && gps->signal_ok &&
 						(lctx.gps_log_delay > (TIME_DELAY_FIRST_FIX *
-											   g_rtc_config.ubx.output_rate))) {
+										   ubx_get_effective_output_rate()))) {
 						int32_t avg_speed = pvt_snapshot.gSpeed;
 						if (avg_speed > STANDSTILL_DETECTION_MAX &&
 							gps->time_set) {
@@ -722,7 +721,9 @@ static void gpsTask(void *parameter) {
 									lctx.old_nav_pvt_itow; // Correct order
 								uint32_t threshold_ms =
 									HZ_TO_MS(g_rtc_config.ubx
-												 .output_rate); // Frame length
+											 .output_rate);
+								threshold_ms =
+									HZ_TO_MS(ubx_get_effective_output_rate()); // Frame length
 								if (gps->gps_speed >
 									2000) { // only check timeouts when speed >
 											// 2 m/s

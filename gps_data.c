@@ -142,7 +142,7 @@ void gps_check_alfa_buf(size_t new_size) {
 		// Log performance impact if buffer was reduced
 		if (log_p_lctx.alfa_buf_size < new_size) {
 			// Calculate speed requirements: time to cover 500m = buffer_elements / rate
-			uint8_t rate = g_rtc_config.ubx.output_rate;
+			uint8_t rate = ubx_get_effective_output_rate();
 			float original_time_s = (float)new_size / (float)rate;
 			float reduced_time_s = (float)log_p_lctx.alfa_buf_size / (float)rate;
 			float original_speed_kmh = (ALFA_DISTANCE_MAX / original_time_s) * 3.6f;
@@ -158,7 +158,7 @@ void gps_check_alfa_buf(size_t new_size) {
 			 __func__, new_size, new_size * sizeof(gps_point_t),
 			 log_p_lctx.alfa_buf_size,
 			 (size_t)log_p_lctx.alfa_buf_size * sizeof(gps_point_t),
-			 g_rtc_config.ubx.output_rate);
+			 ubx_get_effective_output_rate());
 	}
 #if (C_LOG_LEVEL <= LOG_INFO_NUM)
 	else {
@@ -415,7 +415,8 @@ static inline void update_speed_buffer(gps_point_t *p, int32_t gSpeed) {
 	log_p_lctx.buf_gspeed[buf_index(log_p_lctx.index_gspeed)] = gSpeed;
 #if !defined(CONFIG_GPS_LOG_STATIC_A_BUFFER)
 	if (!log_p_lctx.alfa_buf) {
-		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(g_rtc_config.ubx.output_rate, spd_threshold_for_alfa(g_rtc_config.ubx.output_rate)));
+		const uint8_t rate = ubx_get_effective_output_rate();
+		gps_check_alfa_buf(ALPHA_BUFFER_SIZE(rate, spd_threshold_for_alfa(rate)));
 	}
 #endif
 #if !defined(CONFIG_GPS_LOG_STATIC_S_BUFFER)
@@ -453,7 +454,7 @@ esp_err_t push_gps_data(gps_context_t *context, struct gps_data_s *me,
 		return ESP_ERR_INVALID_ARG;
 	ubx_ctx_t *ubx = context->ubx_device;
 	ubx_msg_t *ubxMessage = &ubx->ubx_msg;
-	uint8_t sample_rate = g_rtc_config.ubx.output_rate;
+	uint8_t sample_rate = ubx_get_effective_output_rate();
 	const float spd2s = time_cur_speed(time_2s); // speed in mm/s
 	ubx_nav_mode_t old_nav_mode = UBX_MODE_PORTABLE;
 	ubx_nav_mode_t new_nav_mode = UBX_MODE_PORTABLE;

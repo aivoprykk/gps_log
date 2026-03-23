@@ -5,7 +5,7 @@
 #include "ubx.h"
 #include "gps_data.h"
 
-void log_ubx(gps_context_t *context, ubx_msg_t * ubxMessage, bool log_ubx_nav_sat) {
+void log_ubx(gps_context_t *context, ubx_msg_t *ubxMessage, bool log_nav_dop) {
     const uint8_t i[2] = {0xB5, 0x62};
     // write nav_pvt
     WRITEUBX(&(i[0]), 2);
@@ -18,7 +18,7 @@ void log_ubx(gps_context_t *context, ubx_msg_t * ubxMessage, bool log_ubx_nav_sa
         WRITEUBX(&ubxMessage->nav_sat.chkA, 2); // checkA and checkB are 2 bytes
     }
     // write nav_dop
-    if (log_ubx_nav_sat) {  // only add navDOP msg to ubx file if nav_sat active
+    if (log_nav_dop) {  // navDOP logging is controlled by the logging preference, not receiver message enablement
         WRITEUBX(&(i[0]), 2);
         WRITEUBX(&ubxMessage->navDOP, sizeof(ubxMessage->navDOP));
     }

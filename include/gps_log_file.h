@@ -92,7 +92,8 @@ bool log_files_opened(struct gps_context_s * context);
 // gps_log_file_config_t *log_config_new();
 // void log_config_delete(gps_log_file_config_t *log);
 
-void log_ubx(struct gps_context_s *context, struct ubx_msg_s * ubxMessage, bool log_ubx_nav_sat);
+void log_ubx(struct gps_context_s *context, struct ubx_msg_s *ubxMessage,
+             bool log_nav_dop);
 // esp_err_t save_log_file_bits(struct gps_context_s *config, uint8_t *log_file_bits);
 
 #ifdef __cplusplus

@@ -88,7 +88,7 @@ uint16_t Fletcher16( uint8_t *data, int count );
 time_t tmConvert_t(int YYYY, byte MM, byte DD, byte hh, byte mm, byte ss);
 */
 struct gps_context_s;
-void log_GPY_Header(const struct gps_context_s *context);
+void log_header_GPY(const struct gps_context_s *context);
 void log_GPY(struct gps_context_s *context);
 
 #ifdef __cplusplus

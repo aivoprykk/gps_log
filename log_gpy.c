@@ -90,7 +90,7 @@ time_t tmConvert_t(int YYYY, byte MM, byte DD, byte hh, byte mm, byte ss)
   return makeTime(tmSet);
 }
 */
-void log_GPY_Header(const struct gps_context_s *context) {
+void log_header_GPY(const struct gps_context_s *context) {
     const char *firmware_version = "unknown";
     strbf_t sb;
 
@@ -130,30 +130,12 @@ void log_GPY_Header(const struct gps_context_s *context) {
 void log_GPY(struct gps_context_s *context) {
     if(NOGPY)
         return;
-    // convert a date and time into unix time, offset 1970, Arduino 8bytes = LL
-    // !!!!!
     const ubx_msg_t * ubxMessage = &context->ubx_device->ubx_msg;
-    time_t utc_Sec;
-    uint32_t gps_year = ubxMessage->navPvt.year;
-    uint8_t gps_month = ubxMessage->navPvt.month;
-    uint8_t gps_day = ubxMessage->navPvt.day;
-    uint8_t gps_hour = ubxMessage->navPvt.hour;
-    uint8_t gps_minute = ubxMessage->navPvt.minute;
-    uint8_t gps_second = ubxMessage->navPvt.second;
-    int32_t gps_millis = c_nano_to_millis_round(ubxMessage->navPvt.nano);
-    struct tm frame_time = {0};  // time elements structure
-
-    c_normalize_utc_fields(&gps_year, &gps_month, &gps_day, &gps_hour,
-                           &gps_minute, &gps_second, &gps_millis, 1000U);
-    frame_time.tm_sec = gps_second;
-    frame_time.tm_hour = gps_hour;
-    frame_time.tm_min = gps_minute;
-    frame_time.tm_mday = gps_day;
-    frame_time.tm_mon = gps_month - 1;  // month 0 - 11 with mktime
-    frame_time.tm_year = gps_year - 1900;  // years since 1900, so deduct 1900
-    frame_time.tm_isdst = 0;            // No daylight saving
-    utc_Sec = mktime(&frame_time);  // mktime returns local time, so TZ is important !!!
-    int64_t utc_ms = utc_Sec * 1000LL + gps_millis;
+    int64_t utc_ms = (int64_t)c_utc_ms_from_date_time(
+        ubxMessage->navPvt.year, ubxMessage->navPvt.month,
+        ubxMessage->navPvt.day, ubxMessage->navPvt.hour,
+        ubxMessage->navPvt.minute, ubxMessage->navPvt.second,
+        c_nano_to_millis_round(ubxMessage->navPvt.nano), NULL);
 
     // calcultation of delta values
     int delta_time = utc_ms - gpy_frame.Unix_time;                 // ms
