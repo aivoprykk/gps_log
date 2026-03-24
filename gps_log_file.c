@@ -143,9 +143,39 @@ static esp_err_t get_gps_scratch_buffer(logger_buffer_handle_t *handle) {
 
 // Sync log_file_bits with current runtime config (g_rtc_config.gps)
 static void gps_log_sync_bits_from_config(gps_log_file_config_t *cfg) {
+    (void)cfg;
+
     // Ensure at least one format is enabled; fall back to SBP
     if (!gps_log_file_bits_check(&g_rtc_config.gps.log_enables)) {
         g_rtc_config.gps.log_enables.bits.log_sbp = 1;
+    }
+}
+
+static bool gps_log_file_is_enabled(const cfg_gps_log_enables_t *enables,
+                           uint8_t file_index) {
+    if (!enables) {
+        return false;
+    }
+
+    switch (file_index) {
+    case sd_log_txt:
+        return enables->bits.log_txt;
+    case sd_log_sbp:
+        return enables->bits.log_sbp;
+    case sd_log_ubx:
+        return enables->bits.log_ubx;
+    case sd_log_gpx:
+        return enables->bits.log_gpx;
+#if defined(GPS_LOG_HAS_OAO)
+    case sd_log_oao:
+        return enables->bits.log_oao;
+#endif
+#if defined(GPS_LOG_HAS_GPY)
+    case sd_log_gpy:
+        return enables->bits.log_gpy;
+#endif
+    default:
+        return false;
     }
 }
 
@@ -181,7 +211,7 @@ static float get_avg(const gps_run_t *b) {
  * Must be called from async writer task only
  */
 static esp_err_t async_writer_flush_buffer(uint8_t file_index) {
-    if (file_index >= 5) return ESP_ERR_INVALID_ARG;
+    if (file_index >= sd_log_end) return ESP_ERR_INVALID_ARG;
 
     file_write_buffer_t *fb = &file_buffers[file_index];
     if (!fb->buffer || fb->buffer_used == 0) {
@@ -214,7 +244,7 @@ static esp_err_t async_writer_flush_buffer(uint8_t file_index) {
  * Must be called from async writer task only
  */
 static esp_err_t async_writer_write_buffered(uint8_t file_index, const uint8_t *data, size_t len) {
-    if (file_index >= 5 || !data || len == 0) return ESP_ERR_INVALID_ARG;
+    if (file_index >= sd_log_end || !data || len == 0) return ESP_ERR_INVALID_ARG;
 
     file_write_buffer_t *fb = &file_buffers[file_index];
 
@@ -459,6 +489,10 @@ static esp_err_t queue_async_write(uint8_t file_index, const uint8_t *data, size
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (file_index >= sd_log_end) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     if (!data || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -503,6 +537,10 @@ static esp_err_t queue_async_flush(uint8_t file_index) {
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (file_index >= sd_log_end) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     async_write_request_t req = {
         .type = ASYNC_WRITE_REQUEST_FLUSH,
         .file_index = file_index,
@@ -522,6 +560,10 @@ static esp_err_t queue_async_flush(uint8_t file_index) {
 static esp_err_t queue_async_close(uint8_t file_index) {
     if (!async_writer_running || !async_writer_queue) {
         return ESP_ERR_INVALID_STATE;
+    }
+
+    if (file_index >= sd_log_end) {
+        return ESP_ERR_INVALID_ARG;
     }
 
     async_write_request_t req = {
@@ -688,17 +730,17 @@ static void write_log_file_header_if_empty(gps_context_t *context,
     if (file_index == sd_log_sbp) {
         log_header_SBP(context);
     }
-#if defined(GPS_LOG_HAS_GPY)
-    else if (file_index == sd_log_gpy) {
-        log_header_GPY(context);
-    }
-#endif
     else if (file_index == sd_log_gpx) {
         log_header_GPX(context);
     }
 #if defined(GPS_LOG_HAS_OAO)
     else if (file_index == sd_log_oao) {
         log_header_OAO(context);
+    }
+#endif
+#if defined(GPS_LOG_HAS_GPY)
+    else if (file_index == sd_log_gpy) {
+        log_header_GPY(context);
     }
 #endif
 
@@ -956,7 +998,7 @@ void open_files(gps_context_t *context) {
         enables->bits.log_sbp = 1;
     for(uint8_t i = 0; i < sd_log_end; i++) {
         FUNC_ENTRY_ARGSD(TAG, "opening %s", config->filenames[i]);
-        if (enables->value & (1 << i)) {
+        if (gps_log_file_is_enabled(enables, i)) {
             fn = i == sd_log_ubx ? ".ubx"
                 : i == sd_log_sbp ? ".sbp"
                 : i == sd_log_gpx ? ".gpx"
@@ -1036,33 +1078,29 @@ void flush_files(const gps_context_t *context) {
         return;
     }
     if (ubx_get_effective_output_rate() <= 10) {
-        if (load_balance == 0) {
+        if (load_balance == sd_log_ubx) {
             log_fsync(context, sd_log_ubx);
         }
-        if (load_balance == 1) {
+        if (load_balance == sd_log_txt) {
             log_fsync(context, sd_log_txt);
         }
-#if defined(GPS_LOG_HAS_GPY)
-        if (load_balance == 2) {
-            log_fsync(context, sd_log_gpy);
-        }
-#endif
-        if (load_balance == 3) {
+        if (load_balance == sd_log_sbp) {
             log_fsync(context, sd_log_sbp);
         }
-        if (load_balance == 4) {
+        if (load_balance == sd_log_gpx) {
             log_fsync(context, sd_log_gpx);
-        }
 #if defined(GPS_LOG_HAS_OAO)
-        if (load_balance == 5) {
+        }
+        if (load_balance == sd_log_oao) {
             log_fsync(context, sd_log_oao);
-            load_balance = -1;
-        }
-#else
-        if (load_balance == 4) {
-            load_balance = -1;
-        }
 #endif
+#if defined(GPS_LOG_HAS_GPY)
+        }
+        if (load_balance == sd_log_gpy) {
+            log_fsync(context, sd_log_gpy);
+#endif
+            load_balance = -1;
+        }
         load_balance++;
     }
 }
@@ -1114,11 +1152,6 @@ void log_to_file(gps_context_t *context) {
     if (enables.bits.log_ubx) {
         log_ubx(context, &ubx->ubx_msg, g_rtc_config.ubx.log_sat_details);
     }
-#if defined(GPS_LOG_HAS_GPY)
-    if (enables.bits.log_gpy) {
-        log_GPY(context);
-    }
-#endif
     if (enables.bits.log_sbp) {
         log_SBP(context);
     }
@@ -1128,6 +1161,11 @@ void log_to_file(gps_context_t *context) {
 #if defined(GPS_LOG_HAS_OAO)
     if (enables.bits.log_oao) {
         log_OAO(context);
+    }
+#endif
+#if defined(GPS_LOG_HAS_GPY)
+    if (enables.bits.log_gpy) {
+        log_GPY(context);
     }
 #endif
 }

@@ -105,17 +105,16 @@ if (gps_start() == ESP_OK) {
 #include "gps_log_file.h"
 
 // Initialize log configuration
-gps_log_file_config_t *log_config = log_config_init();
-strcpy(log_config->base_path, "/sdcard");
+gps_log_file_config_t *log_config = gps_log_config_init();
 strcpy(log_config->filename_base, "gps_track");
+
+// File formats are selected via the shared GPS runtime config.
+g_rtc_config.gps.log_enables.bits.log_txt = 1;
+g_rtc_config.gps.log_enables.bits.log_gpx = 1;
+g_rtc_config.gps.log_enables.bits.log_ubx = 1;
 
 // Open log files
 open_files(&gps_context);
-
-// Enable specific log formats
-log_config->log_file_enables.bits.log_txt = 1;  // Enable TXT logging
-log_config->log_file_enables.bits.log_gpx = 1;  // Enable GPX logging
-log_config->log_file_enables.bits.log_ubx = 1;  // Enable UBX logging
 ```
 
 ### GPS Data Access
